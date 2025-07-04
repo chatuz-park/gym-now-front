@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X } from 'lucide-react'
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -7,21 +7,37 @@ import { Button } from '../components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import { Badge } from '../components/ui/badge'
 import ClientCreator from '../components/ClientCreator'
-import { mockClients, mockRoutines } from '../data/mockData'
+import { mockRoutines } from '../data/mockData'
 import { formatDate } from '../lib/utils'
+import { usePaginatedApi } from '../hooks/useApi'
+import { clientsAPI } from '../lib/api'
+import type { Client } from '../lib/api'
 
 const Clients: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { id: clientIdFromPath } = useParams<{ id: string }>()
   const [selectedClient, setSelectedClient] = useState<string | null>(null)
-  const [clients, setClients] = useState(mockClients)
   const [expiringAccordionOpen, setExpiringAccordionOpen] = useState(false)
   const [showRoutineModal, setShowRoutineModal] = useState(false)
   const [clientForRoutine, setClientForRoutine] = useState<string | null>(null)
   const [selectedRoutineForAssignment, setSelectedRoutineForAssignment] = useState<string | null>(null)
   const [selectedDaysForClient, setSelectedDaysForClient] = useState<string[]>([])
   const [renewalDate, setRenewalDate] = useState('')
+
+  // Hook para cargar clientes desde la API
+  const {
+    data: clients,
+    loading: clientsLoading,
+    error: clientsError,
+    execute: loadClients,
+    refresh: refreshClients
+  } = usePaginatedApi(clientsAPI.getAll)
+
+  // Cargar clientes al montar el componente
+  useEffect(() => {
+    loadClients()
+  }, [loadClients])
 
   const daysOfWeek = [
     { key: 'monday', label: 'Lunes' },
@@ -296,30 +312,8 @@ const Clients: React.FC = () => {
   }
 
   const handleCreateClient = (clientData: any) => {
-    // Create new client with proper structure
-    const newClient = {
-      id: clientData.id,
-      name: clientData.name,
-      email: clientData.email,
-      phone: clientData.phone || '',
-      age: parseInt(clientData.age) || 0,
-      weight: parseInt(clientData.weight) || 0,
-      height: parseInt(clientData.height) || 0,
-      goals: clientData.goals || [],
-      joinDate: clientData.joinDate,
-      profileImage: `https://images.unsplash.com/photo-${Math.random().toString(36).substring(7)}?w=150&h=150&fit=crop&crop=face`,
-      subscription: {
-        type: clientData.subscriptionType,
-        startDate: clientData.startDate,
-        endDate: clientData.endDate
-      },
-      assignedRoutines: clientData.assignedRoutines || [],
-      notes: clientData.notes || '',
-      emergencyContact: clientData.emergencyContact || '',
-      medicalConditions: clientData.medicalConditions || ''
-    }
-
-    setClients([...clients, newClient])
+    // El cliente ya fue creado en la API, solo necesitamos actualizar la lista
+    refreshClients()
   }
 
   const handleSearchChange = (value: string) => {
