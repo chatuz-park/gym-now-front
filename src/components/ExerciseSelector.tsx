@@ -6,6 +6,13 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { mockExercises } from '../data/mockData'
+import { 
+  EXERCISE_CATEGORIES, 
+  getDifficultyColor, 
+  getExerciseIcon, 
+  getExerciseColor,
+  DEFAULT_EXERCISE_SET 
+} from '../definitions'
 
 interface ExerciseSet {
   exerciseId: string
@@ -36,13 +43,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   const searchTerm = searchParams.get('search') || ''
   const selectedCategory = searchParams.get('category') || 'all'
 
-  const categories = [
-    { id: 'all', name: 'Todos', color: 'default' },
-    { id: 'strength', name: 'Fuerza', color: 'default' },
-    { id: 'cardio', name: 'Cardio', color: 'destructive' },
-    { id: 'flexibility', name: 'Flexibilidad', color: 'success' },
-    { id: 'core', name: 'Core', color: 'secondary' }
-  ]
+  // Usar las constantes importadas de definitions.ts
 
   // Update URL params when state changes
   const updateSearchParams = (updates: Record<string, string>) => {
@@ -85,43 +86,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
     return matchesSearch && matchesCategory
   })
 
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case 'beginner': return 'success'
-      case 'intermediate': return 'warning'
-      case 'advanced': return 'destructive'
-      default: return 'secondary'
-    }
-  }
-
-  const getExerciseIcon = (exercise: typeof mockExercises[0]) => {
-    const name = exercise.name.toLowerCase()
-    if (name.includes('sentadilla') || name.includes('squat')) return '🏋️'
-    if (name.includes('press') || name.includes('bench')) return '💪'
-    if (name.includes('peso muerto') || name.includes('deadlift')) return '🏋️'
-    if (name.includes('flexion') || name.includes('push-up')) return '🤸'
-    if (name.includes('plancha') || name.includes('plank')) return '🧘'
-    if (name.includes('cardio') || name.includes('correr')) return '🏃'
-    if (name.includes('estiramiento') || name.includes('stretch')) return '🧘'
-    return '🏋️' // Default icon
-  }
-
-  const getExerciseColor = (exercise: typeof mockExercises[0]) => {
-    const name = exercise.name.toLowerCase()
-    if (name.includes('sentadilla') || name.includes('squat') || name.includes('peso muerto')) {
-      return 'from-blue-100 to-blue-200 border-blue-200 text-blue-600'
-    }
-    if (name.includes('press') || name.includes('bench') || name.includes('flexion')) {
-      return 'from-red-100 to-red-200 border-red-200 text-red-600'
-    }
-    if (name.includes('plancha') || name.includes('core')) {
-      return 'from-green-100 to-green-200 border-green-200 text-green-600'
-    }
-    if (name.includes('cardio') || name.includes('correr')) {
-      return 'from-purple-100 to-purple-200 border-purple-200 text-purple-600'
-    }
-    return 'from-primary-100 to-primary-200 border-primary-200 text-primary-600'
-  }
+  // Usar las funciones importadas de definitions.ts
 
   const addExercise = (exercise: typeof mockExercises[0]) => {
     const isAlreadySelected = selectedExercises.some(se => se.exerciseId === exercise.id)
@@ -129,10 +94,10 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
       const newExerciseSet: ExerciseSet = {
         exerciseId: exercise.id,
         exercise,
-        sets: 3,
-        reps: 12,
-        weight: 0,
-        restTime: 60
+        sets: DEFAULT_EXERCISE_SET.sets,
+        reps: DEFAULT_EXERCISE_SET.reps,
+        weight: DEFAULT_EXERCISE_SET.weight,
+        restTime: DEFAULT_EXERCISE_SET.restTime
       }
       setSelectedExercises([...selectedExercises, newExerciseSet])
     }
@@ -194,7 +159,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                 </div>
                 
                 <div className="flex flex-wrap gap-2">
-                  {categories.map((category) => (
+                  {EXERCISE_CATEGORIES.map((category) => (
                     <Button
                       key={category.id}
                       size="sm"
@@ -223,8 +188,8 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                         <div className="flex space-x-4">
                           {/* Exercise Image Placeholder */}
                           <div className="flex-shrink-0">
-                            <div className={`w-16 h-16 bg-gradient-to-br ${getExerciseColor(exercise)} rounded-lg flex items-center justify-center border`}>
-                              <span className="text-2xl">{getExerciseIcon(exercise)}</span>
+                                                          <div className={`w-16 h-16 bg-gradient-to-br ${getExerciseColor(exercise.name)} rounded-lg flex items-center justify-center border`}>
+                              <span className="text-2xl">{getExerciseIcon(exercise.name)}</span>
                             </div>
                           </div>
                           

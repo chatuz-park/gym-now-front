@@ -11,140 +11,241 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { usePaginatedApi, useApi } from '../hooks/useApi'
 import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
 import type { Client, Routine } from '../lib/api'
+import toast from 'react-hot-toast'
+import { 
+  SUBSCRIPTION_TYPES, 
+  AVAILABLE_GOALS,
+  DAYS_OF_WEEK
+} from '../definitions'
+import type { SubscriptionType } from '../definitions'
+
+// Tipos para el formulario
+interface ClientFormValues {
+  name: string
+  email: string
+  phone: string
+  age: string
+  weight: string
+  height: string
+  goals: string[]
+  subscriptionType: 'standard' | 'premium' | 'personalized'
+  startDate: string
+  endDate: string
+  notes: string
+  emergencyContact: string
+  medicalConditions: string
+  bodyFat: string
+  muscleMass: string
+  measurements: {
+    chest: string
+    waist: string
+    biceps: string
+    forearms: string
+    thighs: string
+    calves: string
+    neck: string
+    shoulders: string
+    hips: string
+  }
+  selectedRoutines: number[]
+  selectedDays: string[]
+}
+
+// Tipo para cliente extendido con datos adicionales
+interface ExtendedClient extends Client {
+  subscription?: {
+    type: 'standard' | 'premium' | 'personalized'
+    startDate: string
+    endDate: string
+  }
+  emergencyContact?: string
+  medicalConditions?: string
+  bodyFat?: number
+  muscleMass?: number
+  measurements?: {
+    chest?: number
+    waist?: number
+    biceps?: number
+    forearms?: number
+    thighs?: number
+    calves?: number
+    neck?: number
+    shoulders?: number
+    hips?: number
+  }
+  assignedRoutines?: number[]
+}
 
 interface ClientCreatorProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (clientData: any) => void
+  onSave: (clientData: Client) => void
+  clientToEdit?: ExtendedClient
+  clientId?: string | number // ID del cliente para cargar desde API
 }
 
-// Esquema de validación con Yup
-const ClientValidationSchema = Yup.object().shape({
-  // Información personal
-  name: Yup.string()
-    .trim()
-    .required('El nombre es requerido')
-    .min(2, 'El nombre debe tener al menos 2 caracteres')
-    .max(100, 'El nombre no puede exceder 100 caracteres'),
-  
-  email: Yup.string()
-    .trim()
-    .required('El email es requerido')
-    .email('El email no es válido')
-    .max(255, 'El email no puede exceder 255 caracteres'),
-  
-  phone: Yup.string()
-    .trim()
-    .required('El teléfono es requerido')
-    .matches(/^[\+]?[0-9\s\-\(\)]+$/, 'El teléfono no es válido'),
-  
-  age: Yup.number()
-    .required('La edad es requerida')
-    .min(13, 'La edad debe ser al menos 13 años')
-    .max(100, 'La edad no puede exceder 100 años')
-    .typeError('La edad debe ser un número'),
-  
-  weight: Yup.number()
-    .required('El peso es requerido')
-    .min(20, 'El peso debe ser al menos 20 kg')
-    .max(300, 'El peso no puede exceder 300 kg')
-    .typeError('El peso debe ser un número'),
-  
-  height: Yup.number()
-    .required('La altura es requerida')
-    .min(100, 'La altura debe ser al menos 100 cm')
-    .max(250, 'La altura no puede exceder 250 cm')
-    .typeError('La altura debe ser un número'),
-  
-  // Objetivos
-  goals: Yup.array()
-    .of(Yup.string())
-    .min(1, 'Debe seleccionar al menos un objetivo')
-    .required('Debe seleccionar al menos un objetivo'),
-  
-  // Suscripción
-  subscriptionType: Yup.string()
-    .oneOf(['standard', 'premium', 'personalized'], 'Tipo de suscripción inválido')
-    .required('Debe seleccionar un tipo de suscripción'),
-  
-  startDate: Yup.date()
-    .required('La fecha de inicio es requerida')
-    .min(new Date(), 'La fecha de inicio no puede ser anterior a hoy'),
-  
-  endDate: Yup.date()
-    .required('La fecha de fin es requerida')
-    .min(Yup.ref('startDate'), 'La fecha de fin debe ser posterior a la fecha de inicio'),
-  
-  // Información adicional
-  emergencyContact: Yup.string()
-    .trim()
-    .max(255, 'El contacto de emergencia no puede exceder 255 caracteres'),
-  
-  medicalConditions: Yup.string()
-    .trim()
-    .max(1000, 'Las condiciones médicas no pueden exceder 1000 caracteres'),
-  
-  notes: Yup.string()
-    .trim()
-    .max(1000, 'Las notas no pueden exceder 1000 caracteres'),
-  
-  // Medidas antropométricas
-  bodyFat: Yup.number()
-    .min(0, 'El porcentaje de grasa no puede ser negativo')
-    .max(50, 'El porcentaje de grasa no puede exceder 50%')
-    .typeError('El porcentaje de grasa debe ser un número'),
-  
-  muscleMass: Yup.number()
-    .min(0, 'La masa muscular no puede ser negativa')
-    .max(200, 'La masa muscular no puede exceder 200 kg')
-    .typeError('La masa muscular debe ser un número'),
-  
-  // Medidas corporales
-  measurements: Yup.object().shape({
-    chest: Yup.number()
-      .min(0, 'La medida del pecho no puede ser negativa')
-      .max(200, 'La medida del pecho no puede exceder 200 cm')
-      .typeError('La medida del pecho debe ser un número'),
-    waist: Yup.number()
-      .min(0, 'La medida de la cintura no puede ser negativa')
-      .max(200, 'La medida de la cintura no puede exceder 200 cm')
-      .typeError('La medida de la cintura debe ser un número'),
-    biceps: Yup.number()
-      .min(0, 'La medida del bíceps no puede ser negativa')
-      .max(100, 'La medida del bíceps no puede exceder 100 cm')
-      .typeError('La medida del bíceps debe ser un número'),
-    forearms: Yup.number()
-      .min(0, 'La medida del antebrazo no puede ser negativa')
-      .max(100, 'La medida del antebrazo no puede exceder 100 cm')
-      .typeError('La medida del antebrazo debe ser un número'),
-    thighs: Yup.number()
-      .min(0, 'La medida del muslo no puede ser negativa')
-      .max(150, 'La medida del muslo no puede exceder 150 cm')
-      .typeError('La medida del muslo debe ser un número'),
-    calves: Yup.number()
-      .min(0, 'La medida de la pantorrilla no puede ser negativa')
-      .max(100, 'La medida de la pantorrilla no puede exceder 100 cm')
-      .typeError('La medida de la pantorrilla debe ser un número'),
-    neck: Yup.number()
-      .min(0, 'La medida del cuello no puede ser negativa')
-      .max(100, 'La medida del cuello no puede exceder 100 cm')
-      .typeError('La medida del cuello debe ser un número'),
-    shoulders: Yup.number()
-      .min(0, 'La medida de los hombros no puede ser negativa')
-      .max(200, 'La medida de los hombros no puede exceder 200 cm')
-      .typeError('La medida de los hombros debe ser un número'),
-    hips: Yup.number()
-      .min(0, 'La medida de la cadera no puede ser negativa')
-      .max(200, 'La medida de la cadera no puede exceder 200 cm')
-      .typeError('La medida de la cadera debe ser un número'),
-  }),
-  
-  // Rutinas (validación personalizada)
-  selectedRoutines: Yup.array()
-    .of(Yup.number())
-    .min(1, 'Debe seleccionar al menos una rutina')
-    .required('Debe seleccionar al menos una rutina'),
-})
+// Función para crear esquema de validación dinámico
+const createValidationSchema = (isEditMode: boolean = false) => {
+  return Yup.object().shape({
+    // Información personal
+    name: Yup.string()
+      .trim()
+      .required('El nombre es requerido')
+      .min(2, 'El nombre debe tener al menos 2 caracteres')
+      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    
+    email: Yup.string()
+      .trim()
+      .required('El email es requerido')
+      .email('El email no es válido')
+      .max(255, 'El email no puede exceder 255 caracteres'),
+    
+    phone: Yup.string()
+      .trim()
+      .required('El teléfono es requerido')
+      .matches(/^[\+]?[0-9\s\-\(\)]+$/, 'El teléfono no es válido'),
+    
+    age: Yup.number()
+      .required('La edad es requerida')
+      .min(13, 'La edad debe ser al menos 13 años')
+      .max(100, 'La edad no puede exceder 100 años')
+      .typeError('La edad debe ser un número'),
+    
+    weight: Yup.number()
+      .required('El peso es requerido')
+      .min(20, 'El peso debe ser al menos 20 kg')
+      .max(300, 'El peso no puede exceder 300 kg')
+      .typeError('El peso debe ser un número'),
+    
+    height: Yup.number()
+      .required('La altura es requerida')
+      .min(100, 'La altura debe ser al menos 100 cm')
+      .max(250, 'La altura no puede exceder 250 cm')
+      .typeError('La altura debe ser un número'),
+    
+    // Objetivos
+    goals: Yup.array()
+      .of(Yup.string())
+      .min(1, 'Debe seleccionar al menos un objetivo')
+      .required('Debe seleccionar al menos un objetivo'),
+    
+    // Suscripción
+    subscriptionType: Yup.string()
+      .oneOf(['standard', 'premium', 'personalized'], 'Tipo de suscripción inválido')
+      .required('Debe seleccionar un tipo de suscripción'),
+    
+    startDate: Yup.date()
+      .required('La fecha de inicio es requerida')
+      .test('start-date', 'La fecha de inicio no puede ser anterior a hoy', function(value) {
+        if (isEditMode) {
+          // En modo edición, permitir fechas pasadas
+          return true
+        }
+        return value ? value >= new Date() : false
+      }),
+    
+    endDate: Yup.date()
+      .required('La fecha de fin es requerida')
+      .min(Yup.ref('startDate'), 'La fecha de fin debe ser posterior a la fecha de inicio'),
+    
+    // Información adicional
+    emergencyContact: Yup.string()
+      .trim()
+      .max(255, 'El contacto de emergencia no puede exceder 255 caracteres'),
+    
+    medicalConditions: Yup.string()
+      .trim()
+      .max(1000, 'Las condiciones médicas no pueden exceder 1000 caracteres'),
+    
+    notes: Yup.string()
+      .trim()
+      .max(1000, 'Las notas no pueden exceder 1000 caracteres'),
+    
+    // Medidas antropométricas (opcionales)
+    bodyFat: Yup.mixed()
+      .test('body-fat', 'El porcentaje de grasa debe ser un número válido', function(value) {
+        if (!value || value === '') return true // Campo opcional
+        const num = Number(value)
+        return !isNaN(num) && num >= 0 && num <= 50
+      }),
+    
+    muscleMass: Yup.mixed()
+      .test('muscle-mass', 'La masa muscular debe ser un número válido', function(value) {
+        if (!value || value === '') return true // Campo opcional
+        const num = Number(value)
+        return !isNaN(num) && num >= 0 && num <= 200
+      }),
+    
+    // Medidas corporales (opcionales)
+    measurements: Yup.object().shape({
+      chest: Yup.mixed()
+        .test('chest', 'La medida del pecho debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 200
+        }),
+      waist: Yup.mixed()
+        .test('waist', 'La medida de la cintura debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 200
+        }),
+      biceps: Yup.mixed()
+        .test('biceps', 'La medida del bíceps debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 100
+        }),
+      forearms: Yup.mixed()
+        .test('forearms', 'La medida del antebrazo debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 100
+        }),
+      thighs: Yup.mixed()
+        .test('thighs', 'La medida del muslo debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 150
+        }),
+      calves: Yup.mixed()
+        .test('calves', 'La medida de la pantorrilla debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 100
+        }),
+      neck: Yup.mixed()
+        .test('neck', 'La medida del cuello debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 100
+        }),
+      shoulders: Yup.mixed()
+        .test('shoulders', 'La medida de los hombros debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 200
+        }),
+      hips: Yup.mixed()
+        .test('hips', 'La medida de la cadera debe ser un número válido', function(value) {
+          if (!value || value === '') return true
+          const num = Number(value)
+          return !isNaN(num) && num >= 0 && num <= 200
+        }),
+    }),
+    
+    // Rutinas (opcional en modo edición)
+    selectedRoutines: Yup.array()
+      .of(Yup.number())
+      .test('routines', 'Debe seleccionar al menos una rutina', function(value) {
+        if (isEditMode) {
+          // En modo edición, las rutinas son opcionales
+          return true
+        }
+        return value && value.length > 0
+      }),
+  })
+}
 
 // Valores iniciales del formulario
 const initialValues = {
@@ -186,36 +287,18 @@ const initialValues = {
   
   // Rutinas
   selectedRoutines: [] as number[],
+  selectedDays: [] as string[],
+
 }
 
-const subscriptionTypes = [
-  {
-    id: 'standard',
-    name: 'Estándar',
-    price: 199000,
-    features: ['Acceso básico', '2 rutinas', 'Seguimiento básico'],
-    color: 'bg-blue-50 text-blue-700 border-blue-200'
-  },
-  {
-    id: 'premium',
-    name: 'Premium',
-    price: 299000,
-    features: ['Acceso completo', 'Rutinas ilimitadas', 'Seguimiento avanzado', 'Consultas prioritarias'],
-    color: 'bg-purple-50 text-purple-700 border-purple-200'
-  },
-  {
-    id: 'personalized',
-    name: 'Personalizada',
-    price: 399000,
-    features: ['Todo de Premium', 'Rutinas personalizadas', 'Sesiones 1:1', 'Nutrición incluida'],
-    color: 'bg-green-50 text-green-700 border-green-200'
-  }
-]
+// Usar las constantes importadas de definitions.ts
 
 const ClientCreator: React.FC<ClientCreatorProps> = ({
   isOpen,
   onClose,
-  onSave
+  onSave,
+  clientToEdit,
+  clientId
 }) => {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState('personal')
@@ -236,12 +319,34 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   } = useApi(clientsAPI.create)
 
   const {
+    execute: updateClient,
+    loading: updatingClient
+  } = useApi(clientsAPI.update)
+
+  const isProcessing = isSubmitting || creatingClient || updatingClient
+
+  const {
     execute: createClientRoutine
   } = useApi(clientRoutinesAPI.create)
 
   const {
+    execute: deleteClientRoutine
+  } = useApi(clientRoutinesAPI.delete)
+
+  const {
     execute: createProgressMetrics
   } = useApi(progressMetricsAPI.create)
+
+  // Hook para cargar cliente desde API
+  const {
+    data: clientFromApi,
+    loading: clientLoading,
+    error: clientError,
+    execute: loadClient
+  } = useApi(clientsAPI.getById)
+
+  // Estado para el cliente que se está editando
+  const [editingClient, setEditingClient] = useState<ExtendedClient | null>(null)
 
   // Cargar rutinas al montar el componente
   useEffect(() => {
@@ -250,77 +355,192 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
     }
   }, [isOpen, loadRoutines])
 
-  const availableGoals = [
-    'Perder peso',
-    'Ganar masa muscular',
-    'Mejorar resistencia',
-    'Aumentar fuerza',
-    'Mejorar flexibilidad',
-    'Mantener peso',
-    'Reducir estrés',
-    'Mejorar postura'
-  ]
+  // Cargar cliente desde API cuando se abre en modo edición
+  useEffect(() => {
+    if (isOpen && clientId && !clientToEdit) {
+      loadClient(parseInt(clientId.toString()))
+    }
+  }, [isOpen, clientId, clientToEdit, loadClient])
+
+  // Actualizar cliente de edición cuando se carga desde API
+  useEffect(() => {
+    if (clientFromApi) {
+      // Convertir el cliente de la API al formato ExtendedClient
+      const extendedClient: ExtendedClient = {
+        ...clientFromApi,
+        subscription: clientFromApi.subscription_type ? {
+          type: clientFromApi.subscription_type,
+          startDate: clientFromApi.subscription_start || '',
+          endDate: clientFromApi.subscription_end || ''
+        } : undefined,
+        emergencyContact: clientFromApi.emergency_contact,
+        medicalConditions: clientFromApi.medical_conditions,
+        bodyFat: undefined, // Estos campos no están en la API base
+        muscleMass: undefined,
+        measurements: undefined,
+        assignedRoutines: clientFromApi.assigned_routines?.map(routine => 
+          typeof routine === 'number' ? routine : routine.id
+        ) || []
+      }
+      setEditingClient(extendedClient)
+    }
+  }, [clientFromApi])
+
+  // Determinar qué cliente usar para la edición
+  const clientToEditFinal = clientToEdit || editingClient
+
+  // Función para convertir número a string de forma segura
+  const numberToString = (value: number | undefined): string => 
+    value?.toString() || ''
+
+  // Función para obtener medidas corporales
+  const getMeasurements = (client: ExtendedClient) => ({
+    chest: numberToString(client.measurements?.chest),
+    waist: numberToString(client.measurements?.waist),
+    biceps: numberToString(client.measurements?.biceps),
+    forearms: numberToString(client.measurements?.forearms),
+    thighs: numberToString(client.measurements?.thighs),
+    calves: numberToString(client.measurements?.calves),
+    neck: numberToString(client.measurements?.neck),
+    shoulders: numberToString(client.measurements?.shoulders),
+    hips: numberToString(client.measurements?.hips)
+  })
+
+  // Función para obtener rutinas asignadas
+  const getAssignedRoutines = (client: ExtendedClient): number[] => {
+    if (!client.assignedRoutines) return []
+    return client.assignedRoutines.map(routine => 
+      typeof routine === 'number' ? routine : (routine as Routine).id
+    )
+  }
+
+  // Función para obtener tipo de suscripción válido
+  const getSubscriptionType = (client: ExtendedClient): 'standard' | 'premium' | 'personalized' => {
+    const type = client.subscription?.type
+    if (type === 'premium' || type === 'personalized') return type
+    return 'standard'
+  }
+
+  // Generar valores iniciales basados en el cliente a editar
+  const getInitialValues = (): ClientFormValues => {
+    if (!clientToEditFinal) return initialValues
+
+    return {
+      // Información personal
+      name: clientToEditFinal.name,
+      email: clientToEditFinal.email,
+      phone: clientToEditFinal.phone,
+      age: numberToString(clientToEditFinal.age),
+      weight: numberToString(clientToEditFinal.weight),
+      height: numberToString(clientToEditFinal.height),
+      goals: Array.isArray(clientToEditFinal.goals) ? clientToEditFinal.goals : [],
+      
+      // Suscripción
+      subscriptionType: getSubscriptionType(clientToEditFinal),
+      startDate: clientToEditFinal.subscription?.startDate || '',
+      endDate: clientToEditFinal.subscription?.endDate || '',
+      
+      // Información adicional
+      notes: clientToEditFinal.notes || '',
+      emergencyContact: clientToEditFinal.emergencyContact || '',
+      medicalConditions: clientToEditFinal.medicalConditions || '',
+      
+      // Medidas antropométricas
+      bodyFat: numberToString(clientToEditFinal.bodyFat),
+      muscleMass: numberToString(clientToEditFinal.muscleMass),
+      
+      // Medidas corporales
+      measurements: getMeasurements(clientToEditFinal),
+      
+      // Rutinas
+      selectedRoutines: getAssignedRoutines(clientToEditFinal),
+      selectedDays: [],
+
+    } as ClientFormValues
+  }
+
+// Usar las constantes importadas de definitions.ts
+
+  // Función para crear datos del cliente desde valores del formulario
+  const createClientData = (values: ClientFormValues, isEditMode: boolean): Partial<Client> => {
+    const baseData = {
+      name: values.name.trim(),
+      email: values.email.trim(),
+      phone: values.phone.trim(),
+      age: parseInt(values.age),
+      weight: parseFloat(values.weight),
+      height: parseFloat(values.height),
+      goals: values.goals,
+      subscription_type: values.subscriptionType,
+      subscription_start: values.startDate,
+      subscription_end: values.endDate,
+      notes: values.notes.trim() || undefined,
+      emergency_contact: values.emergencyContact.trim() || undefined,
+      medical_conditions: values.medicalConditions.trim() || undefined
+    }
+
+    return isEditMode 
+      ? { ...baseData, join_date: clientToEditFinal!.join_date }
+      : { ...baseData, join_date: new Date().toISOString().split('T')[0] }
+  }
+
+  // Función para crear datos de progreso
+  const createProgressData = (clientId: number, values: ClientFormValues) => ({
+    client_id: clientId,
+    date: new Date().toISOString().split('T')[0],
+    weight: parseFloat(values.weight),
+    body_fat: values.bodyFat ? parseFloat(values.bodyFat) : undefined,
+    muscle_mass: values.muscleMass ? parseFloat(values.muscleMass) : undefined,
+    measurements: Object.fromEntries(
+      Object.entries(values.measurements)
+        .filter(([, value]) => value !== '')
+        .map(([key, value]) => [key, parseFloat(value) || 0])
+    )
+  })
+
+  // Función para crear rutinas de cliente
+  const createClientRoutines = async (clientId: number, routineIds: number[]) => {
+    const routinePromises = routineIds.map(routineId => 
+      createClientRoutine({
+        client_id: clientId,
+        routine_id: routineId,
+        start_date: new Date().toISOString().split('T')[0],
+        is_active: true,
+        assigned_days: {}
+      })
+    )
+    await Promise.all(routinePromises)
+  }
 
   // Función para manejar el envío del formulario
-  const handleSubmit = async (values: any, { setSubmitting, setFieldError }: any) => {
+  const handleSubmit = async (values: ClientFormValues, { setSubmitting, setFieldError }: { setSubmitting: (isSubmitting: boolean) => void; setFieldError: (field: string, message: string) => void }) => {
     setIsSubmitting(true)
 
     try {
-      // Preparar datos del cliente
-      const clientData = {
-        name: values.name.trim(),
-        email: values.email.trim(),
-        phone: values.phone.trim(),
-        age: parseInt(values.age),
-        weight: parseFloat(values.weight),
-        height: parseFloat(values.height),
-        goals: values.goals,
-        join_date: new Date().toISOString().split('T')[0],
-        subscription_type: values.subscriptionType,
-        subscription_start: values.startDate,
-        subscription_end: values.endDate,
-        notes: values.notes.trim() || undefined,
-        emergency_contact: values.emergencyContact.trim() || undefined,
-        medical_conditions: values.medicalConditions.trim() || undefined
+      const isEditMode = !!clientToEditFinal
+      const clientData = createClientData(values, isEditMode)
+      
+      let updatedClient: Client | null
+
+      if (isEditMode) {
+        updatedClient = await updateClient(clientToEditFinal!.id, clientData)
+      } else {
+        updatedClient = await createClient(clientData)
+        
+        if (updatedClient) {
+          // Crear datos adicionales solo para nuevos clientes
+          await createProgressMetrics(createProgressData(updatedClient.id, values))
+          await createClientRoutines(updatedClient.id, values.selectedRoutines)
+        }
       }
 
-      // Crear cliente
-      const newClient = await createClient(clientData)
-      
-      if (newClient) {
-        // Crear métricas de progreso iniciales
-        const progressData = {
-          client_id: newClient.id,
-          date: new Date().toISOString().split('T')[0],
-          weight: parseFloat(values.weight),
-          body_fat: values.bodyFat ? parseFloat(values.bodyFat) : undefined,
-          muscle_mass: values.muscleMass ? parseFloat(values.muscleMass) : undefined,
-          measurements: Object.fromEntries(
-            Object.entries(values.measurements)
-              .filter(([_, value]) => value !== '')
-              .map(([key, value]) => [key, parseFloat(value) || 0])
-          )
-        }
-
-        await createProgressMetrics(progressData)
-
-        // Asignar rutinas al cliente
-        for (const routineId of values.selectedRoutines) {
-          await createClientRoutine({
-            client_id: newClient.id,
-            routine_id: routineId,
-            start_date: new Date().toISOString().split('T')[0],
-            is_active: true,
-            assigned_days: {}
-          })
-        }
-
-        onSave(newClient)
+      if (updatedClient) {
+        onSave(updatedClient)
         handleClose()
       }
     } catch (error) {
-      console.error('Error al crear cliente:', error)
-      setFieldError('submit', 'Error al crear el cliente. Intente nuevamente.')
+      console.error('Error al procesar cliente:', error)
+      setFieldError('submit', `Error al ${clientToEditFinal ? 'actualizar' : 'crear'} el cliente. Intente nuevamente.`)
     } finally {
       setIsSubmitting(false)
       setSubmitting(false)
@@ -334,6 +554,8 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
     setSearchParams(newParams)
     onClose()
   }
+
+
 
   const filteredRoutines = (routines || []).filter(routine => {
     const nameMatch = routine.name.toLowerCase().includes(searchRoutine.toLowerCase())
@@ -351,20 +573,73 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Crear Nuevo Cliente</h2>
-            <p className="text-gray-600">Completa la información del cliente</p>
+            <h2 className="text-xl font-bold text-gray-900">
+              {clientToEdit ? 'Editar Cliente' : 'Crear Nuevo Cliente'}
+            </h2>
+            <p className="text-gray-600">
+              {clientToEdit ? 'Modifica la información del cliente' : 'Completa la información del cliente'}
+            </p>
           </div>
           <Button variant="ghost" size="sm" onClick={handleClose}>
             <X className="w-5 h-5" />
           </Button>
         </div>
 
-        <Formik
-          initialValues={initialValues}
-          validationSchema={ClientValidationSchema}
-          onSubmit={handleSubmit}
-        >
-          {({ values, errors, touched, handleChange, handleBlur, setFieldValue, isSubmitting, isValid }) => (
+        {/* Mostrar estado de carga cuando se está cargando el cliente desde API */}
+        {clientLoading && !clientToEdit ? (
+          <div className="flex items-center justify-center h-[calc(90vh-120px)]">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Cargando información del cliente...</p>
+            </div>
+          </div>
+        ) : clientError && !clientToEdit ? (
+          <div className="flex items-center justify-center h-[calc(90vh-120px)]">
+            <div className="text-center">
+              <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Error al cargar cliente</h3>
+              <p className="text-gray-600 mb-4">No se pudo cargar la información del cliente.</p>
+              <Button onClick={handleClose} variant="outline">
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Formik
+            initialValues={getInitialValues()}
+            validationSchema={createValidationSchema(!!clientToEditFinal)}
+            onSubmit={handleSubmit}
+            enableReinitialize={true}
+          >
+          {({ values, errors, touched, handleChange, handleBlur, setFieldValue, isSubmitting, isValid }) => {
+            const handleDeleteRoutine = async (routineId: number, event: React.MouseEvent) => {
+              event.stopPropagation() // Evitar que se active el onClick de la card
+              
+              try {
+                // Obtener el nombre de la rutina antes de eliminarla
+                const routine = routines?.find(r => r.id === routineId)
+                const routineName = routine?.name || 'Rutina'
+                
+                // Eliminar de la selección local
+                const updatedRoutines = values.selectedRoutines.filter((r: number) => r !== routineId)
+                setFieldValue('selectedRoutines', updatedRoutines)
+                
+                // Si estamos en modo edición y el cliente ya existe, hacer la llamada DELETE
+                if (clientToEditFinal && clientId) {
+                  // Nota: Necesitaríamos el clientRoutineId específico para hacer el DELETE
+                  // Por ahora solo actualizamos la selección local
+                  console.log(`Eliminando rutina ${routineId} del cliente ${clientId}`)
+                }
+                
+                // Mostrar toast de confirmación
+                toast.success(`${routineName} eliminada de la selección`)
+              } catch (error) {
+                console.error('Error al eliminar rutina:', error)
+                toast.error('Error al eliminar la rutina')
+              }
+            }
+            
+            return (
             <Form>
               <div className="flex h-[calc(90vh-120px)]">
                 {/* Left Panel - Form */}
@@ -515,7 +790,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                               Metas de Entrenamiento *
                             </label>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                              {availableGoals.map((goal) => (
+                              {AVAILABLE_GOALS.map((goal) => (
                                 <Button
                                   key={goal}
                                   type="button"
@@ -743,7 +1018,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                             Tipo de Suscripción *
                           </label>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {subscriptionTypes.map((type) => (
+                            {SUBSCRIPTION_TYPES.map((type) => (
                               <Card 
                                 key={type.id}
                                 className={`cursor-pointer transition-all hover:shadow-md ${
@@ -814,7 +1089,10 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                       </TabsContent>
 
                       <TabsContent value="routines" className="space-y-6 mt-6">
-                        <h3 className="text-lg font-semibold text-gray-900">Asignar Rutinas *</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">Asignar Nuevas Rutinas *</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                          Selecciona las rutinas que quieres asignar al cliente. Haz clic en una rutina seleccionada para deseleccionarla.
+                        </p>
                         
                         {/* Routine Search */}
                         <div>
@@ -860,11 +1138,28 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                         </Badge>
                                       </div>
                                     </div>
-                                    {isSelected && (
-                                      <Badge variant="default" className="bg-primary-600">
-                                        Asignada
-                                      </Badge>
-                                    )}
+                                    <div className="flex items-center space-x-2">
+                                      {isSelected && (
+                                        <>
+                                          <Badge variant="default" className="bg-primary-600">
+                                            ✓ Asignada
+                                          </Badge>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={(e) => handleDeleteRoutine(routine.id, e)}
+                                            className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </Button>
+                                        </>
+                                      )}
+                                      {!isSelected && (
+                                        <Badge variant="outline" className="text-gray-500">
+                                          Clic para asignar
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
                                 </CardContent>
                               </Card>
@@ -880,6 +1175,45 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                             </p>
                           )}
                         </ErrorMessage>
+
+                        {/* Day Selection */}
+                        {values.selectedRoutines.length > 0 && (
+                          <div className="space-y-4 mt-6">
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium text-gray-600">2. Selecciona los Días de la Semana</p>
+                              <p className="text-xs text-gray-500">
+                                Selecciona los días en los que se asignará la rutina
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              {DAYS_OF_WEEK.map((day) => (
+                                <Button
+                                  key={day.key}
+                                  variant={values.selectedDays?.includes(day.key) ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => {
+                                    const currentDays = values.selectedDays || []
+                                    const updatedDays = currentDays.includes(day.key)
+                                      ? currentDays.filter(d => d !== day.key)
+                                      : [...currentDays, day.key]
+                                    setFieldValue('selectedDays', updatedDays)
+                                  }}
+                                  className="justify-start"
+                                >
+                                  {day.label}
+                                </Button>
+                              ))}
+                            </div>
+                            {values.selectedDays && values.selectedDays.length > 0 && (
+                              <p className="text-xs text-gray-500">
+                                Días seleccionados: {values.selectedDays.map(day => {
+                                  const dayInfo = DAYS_OF_WEEK.find(d => d.key === day)
+                                  return dayInfo ? dayInfo.label : day
+                                }).join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </TabsContent>
                     </Tabs>
                   </div>
@@ -929,10 +1263,10 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                         <div className="p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center justify-between">
                             <span className="font-medium">
-                              {subscriptionTypes.find(s => s.id === values.subscriptionType)?.name}
+                              {SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.name}
                             </span>
                             <span className="text-primary-600 font-bold">
-                              ${subscriptionTypes.find(s => s.id === values.subscriptionType)?.price?.toLocaleString('es-CO')}
+                              ${SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.price?.toLocaleString('es-CO')}
                             </span>
                           </div>
                           {values.startDate && (
@@ -1036,23 +1370,23 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                     </ErrorMessage>
                     
                     <div className="flex space-x-3">
-                      <Button variant="outline" onClick={handleClose} className="flex-1" disabled={isSubmitting}>
+                      <Button variant="outline" onClick={handleClose} className="flex-1" disabled={isProcessing}>
                         Cancelar
                       </Button>
                       <Button 
                         type="submit"
-                        disabled={!isValid || isSubmitting}
+                        disabled={!isValid || isProcessing}
                         className="flex-1 bg-primary-600 hover:bg-primary-700"
                       >
-                        {isSubmitting ? (
+                        {isProcessing ? (
                           <>
                             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                            Creando...
+                            {clientToEditFinal ? 'Actualizando...' : 'Creando...'}
                           </>
                         ) : (
                           <>
                             <User className="w-4 h-4 mr-2" />
-                            Crear Cliente
+                            {clientToEditFinal ? 'Editar Cliente' : 'Crear Cliente'}
                           </>
                         )}
                       </Button>
@@ -1061,8 +1395,10 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                 </div>
               </div>
             </Form>
-          )}
+            )
+          }}
         </Formik>
+        )}
       </div>
     </div>
   )

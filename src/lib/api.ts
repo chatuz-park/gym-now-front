@@ -394,6 +394,11 @@ export const clientRoutinesAPI = {
     const response = await api.get<ClientRoutine>(`/client-routines/${id}/progress/`)
     return response.data
   },
+
+  getByClientId: async (clientId: number) => {
+    const response = await api.get<ClientRoutine[]>(`/client-routines/?client_id=${clientId}`)
+    return response.data
+  },
 }
 
 // Funciones para objetivos

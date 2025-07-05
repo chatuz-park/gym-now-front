@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X } from 'lucide-react'
+import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2 } from 'lucide-react'
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -7,23 +7,32 @@ import { Button } from '../components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import { Badge } from '../components/ui/badge'
 import ClientCreator from '../components/ClientCreator'
-import { mockRoutines } from '../data/mockData'
+import RoutineEditor from '../components/RoutineEditor'
+
 import { formatDate } from '../lib/utils'
-import { usePaginatedApi } from '../hooks/useApi'
-import { clientsAPI } from '../lib/api'
-import type { Client } from '../lib/api'
+import { usePaginatedApi, useApi } from '../hooks/useApi'
+import { clientsAPI, routinesAPI, clientRoutinesAPI } from '../lib/api'
+import type { Client, Routine } from '../lib/api'
+import { 
+  DAYS_OF_WEEK, 
+  getSubscriptionStatus, 
+  getSubscriptionHighlightClass, 
+  getSubscriptionColor, 
+  getSubscriptionName,
+  formatSelectedDays 
+} from '../definitions'
+import toast, { Toaster } from 'react-hot-toast'
 
 const Clients: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { id: clientIdFromPath } = useParams<{ id: string }>()
-  const [selectedClient, setSelectedClient] = useState<string | null>(null)
+
   const [expiringAccordionOpen, setExpiringAccordionOpen] = useState(false)
-  const [showRoutineModal, setShowRoutineModal] = useState(false)
-  const [clientForRoutine, setClientForRoutine] = useState<string | null>(null)
   const [selectedRoutineForAssignment, setSelectedRoutineForAssignment] = useState<string | null>(null)
   const [selectedDaysForClient, setSelectedDaysForClient] = useState<string[]>([])
   const [renewalDate, setRenewalDate] = useState('')
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
 
   // Hook para cargar clientes desde la API
   const {
@@ -34,26 +43,69 @@ const Clients: React.FC = () => {
     refresh: refreshClients
   } = usePaginatedApi(clientsAPI.getAll)
 
-  // Cargar clientes al montar el componente
+  // Hook para cargar rutinas desde la API
+  const {
+    data: routines,
+    loading: routinesLoading,
+    error: routinesError,
+    execute: loadRoutines
+  } = usePaginatedApi(routinesAPI.getAll)
+
+  // Hook para asignar rutinas a clientes
+  const {
+    execute: assignRoutineToClient,
+    loading: assigningRoutine
+  } = useApi(clientRoutinesAPI.create)
+
+  // Hook para eliminar clientes
+  const {
+    execute: deleteClient,
+    loading: deletingClient
+  } = useApi(clientsAPI.delete)
+
+  // Cargar clientes y rutinas al montar el componente
   useEffect(() => {
     loadClients()
-  }, [loadClients])
+    loadRoutines()
+  }, [loadClients, loadRoutines])
 
-  const daysOfWeek = [
-    { key: 'monday', label: 'Lunes' },
-    { key: 'tuesday', label: 'Martes' },
-    { key: 'wednesday', label: 'Miércoles' },
-    { key: 'thursday', label: 'Jueves' },
-    { key: 'friday', label: 'Viernes' },
-    { key: 'saturday', label: 'Sábado' },
-    { key: 'sunday', label: 'Domingo' }
-  ]
+  // Usar las constantes importadas de definitions.ts
 
   // Get modal state from URL params
   const isClientCreatorOpen = searchParams.get('modal') === 'create-client'
   const isRenewalModalOpen = searchParams.get('modal') === 'renew-subscription' && !!clientIdFromPath
+  const isAssignRoutineModalOpen = searchParams.get('modal') === 'assign-routine' && !!searchParams.get('id')
+  const isEditRoutinesModalOpen = searchParams.get('modal') === 'edit-routines' && !!searchParams.get('id')
   const searchTerm = searchParams.get('search') || ''
   const activeFilter = searchParams.get('filter') || 'all'
+
+  // Cargar rutinas asignadas del cliente cuando se abre el modal
+  useEffect(() => {
+    if (isAssignRoutineModalOpen && searchParams.get('id')) {
+      const clientId = searchParams.get('id')
+      const client = clients.find(c => c.id.toString() === clientId)
+      
+      if (client && client.assigned_routines && client.assigned_routines.length > 0) {
+        // Obtener los IDs de las rutinas asignadas
+        const assignedRoutineIds = client.assigned_routines.map(routine => {
+          if (typeof routine === 'number') {
+            return routine
+          }
+          // Cast para acceder a la estructura correcta
+          const assignedRoutine = routine as any
+          return assignedRoutine.routine?.id
+        })
+        
+        // Si hay rutinas asignadas, seleccionar la primera por defecto
+        if (assignedRoutineIds.length > 0) {
+          setSelectedRoutineForAssignment(assignedRoutineIds[0].toString())
+        }
+      }
+      
+      // Limpiar los días seleccionados al abrir el modal
+      setSelectedDaysForClient([])
+    }
+  }, [isAssignRoutineModalOpen, searchParams, clients])
 
   // Filter clients based on search term and active filter
   const getFilteredClients = () => {
@@ -63,18 +115,17 @@ const Clients: React.FC = () => {
     switch (activeFilter) {
       case 'active':
         filtered = clients.filter(c => {
-          const subscription = (c as any).subscription
-          if (!subscription?.type || !subscription?.startDate || !subscription?.endDate) return false
+          if (!c.subscription_type || !c.subscription_start || !c.subscription_end) return false
           
-          const status = getSubscriptionStatus(subscription.startDate, subscription.endDate)
-          return status.status === 'active' || status.status === 'halfway' || status.status === 'warning'
+          const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
+          return status.status === 'active' || status.status === 'halfway' || status.status === 'warning' || status.status === 'pending'
         })
         break
       case 'premium':
-        filtered = clients.filter(c => (c as any).subscription?.type === 'premium')
+        filtered = clients.filter(c => c.subscription_type === 'premium')
         break
       case 'with-routines':
-        filtered = clients.filter(c => (c as any).assignedRoutines?.length > 0)
+        filtered = clients.filter(c => c.assigned_routines?.length > 0)
         break
       case 'expiring':
         filtered = getExpiringClients()
@@ -113,18 +164,35 @@ const Clients: React.FC = () => {
     const progress = elapsed / totalDuration
     
     const daysUntilExpiration = getDaysUntilExpiration(endDate)
+    const daysUntilStart = Math.ceil((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     
-    if (daysUntilExpiration < 0) {
-      return { status: 'expired', days: daysUntilExpiration, progress }
-    } else if (daysUntilExpiration <= 7) {
-      return { status: 'critical', days: daysUntilExpiration, progress }
-    } else if (daysUntilExpiration <= 30) {
-      return { status: 'warning', days: daysUntilExpiration, progress }
-    } else if (progress > 0.5) {
-      return { status: 'halfway', days: daysUntilExpiration, progress }
-    } else {
-      return { status: 'active', days: daysUntilExpiration, progress }
+    // Si la suscripción aún no ha comenzado
+    if (daysUntilStart > 0) {
+      return { status: 'pending', days: daysUntilStart, progress: 0 }
     }
+    
+    // Si la suscripción ha expirado
+    if (daysUntilExpiration < 0) {
+      return { status: 'expired', days: daysUntilExpiration, progress: 1 }
+    }
+    
+    // Si está por vencer (7 días o menos)
+    if (daysUntilExpiration <= 7) {
+      return { status: 'critical', days: daysUntilExpiration, progress }
+    }
+    
+    // Si está en advertencia (30 días o menos)
+    if (daysUntilExpiration <= 30) {
+      return { status: 'warning', days: daysUntilExpiration, progress }
+    }
+    
+    // Si está a más del 50% de su duración
+    if (progress > 0.5) {
+      return { status: 'halfway', days: daysUntilExpiration, progress }
+    }
+    
+    // Suscripción activa
+    return { status: 'active', days: daysUntilExpiration, progress }
   }
 
   const getSubscriptionHighlightClass = (status: string) => {
@@ -144,14 +212,13 @@ const Clients: React.FC = () => {
 
   const getExpiringClients = () => {
     return clients.filter(client => {
-      const subscription = (client as any).subscription
-      if (!subscription?.startDate || !subscription?.endDate) return false
+      if (!client.subscription_start || !client.subscription_end) return false
       
-      const status = getSubscriptionStatus(subscription.startDate, subscription.endDate)
+      const status = getSubscriptionStatus(client.subscription_start, client.subscription_end)
       return status.status === 'critical' || status.status === 'warning' || status.status === 'expired'
     }).sort((a, b) => {
-      const statusA = getSubscriptionStatus((a as any).subscription.startDate, (a as any).subscription.endDate)
-      const statusB = getSubscriptionStatus((b as any).subscription.startDate, (b as any).subscription.endDate)
+      const statusA = getSubscriptionStatus(a.subscription_start!, a.subscription_end!)
+      const statusB = getSubscriptionStatus(b.subscription_start!, b.subscription_end!)
       return statusA.days - statusB.days
     })
   }
@@ -164,14 +231,13 @@ const Clients: React.FC = () => {
   const filterOptions = [
     { id: 'all', label: 'Todos', count: clients.length, icon: Users },
     { id: 'active', label: 'Activos', count: clients.filter(c => {
-      const subscription = (c as any).subscription
-      if (!subscription?.type || !subscription?.startDate || !subscription?.endDate) return false
+      if (!c.subscription_type || !c.subscription_start || !c.subscription_end) return false
       
-      const status = getSubscriptionStatus(subscription.startDate, subscription.endDate)
-      return status.status === 'active' || status.status === 'halfway' || status.status === 'warning'
+      const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
+      return status.status === 'active' || status.status === 'halfway' || status.status === 'warning' || status.status === 'pending'
     }).length, icon: Target },
-    { id: 'premium', label: 'Premium', count: clients.filter(c => (c as any).subscription?.type === 'premium').length, icon: CreditCard },
-    { id: 'with-routines', label: 'Con Rutinas', count: clients.filter(c => (c as any).assignedRoutines?.length > 0).length, icon: Clock },
+    { id: 'premium', label: 'Premium', count: clients.filter(c => c.subscription_type === 'premium').length, icon: CreditCard },
+    { id: 'with-routines', label: 'Con Rutinas', count: clients.filter(c => c.assigned_routines?.length > 0).length, icon: Clock },
     { id: 'expiring', label: 'Por Vencer', count: expiringClients.length, icon: AlertTriangle }
   ]
 
@@ -235,7 +301,7 @@ const Clients: React.FC = () => {
 
   const handleRenewSubscriptionSubmit = () => {
     if (!renewalDate || !clientIdFromPath) {
-      alert('Por favor selecciona una fecha de renovación')
+      toast.error('Por favor selecciona una fecha de renovación')
       return
     }
     // TODO: Implement subscription renewal logic
@@ -256,21 +322,59 @@ const Clients: React.FC = () => {
   }
 
   const handleViewDetails = (clientId: string) => {
-    setSelectedClient(clientId)
+    navigate(`/clients/${clientId}?modal=edit-client`)
   }
 
   const handleAssignRoutine = (clientId: string) => {
     console.log('Opening routine assignment modal for client:', clientId)
-    setClientForRoutine(clientId)
-    setShowRoutineModal(true)
-    setSelectedRoutineForAssignment(null)
-    setSelectedDaysForClient([])
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('modal', 'assign-routine')
+    newParams.set('id', clientId)
+    setSearchParams(newParams)
+  }
+
+  const handleEditRoutines = (clientId: string) => {
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('modal', 'edit-routines')
+    newParams.set('id', clientId)
+    setSearchParams(newParams)
+  }
+
+  const handleCloseEditRoutinesModal = () => {
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('modal')
+    newParams.delete('id')
+    setSearchParams(newParams)
+  }
+
+  const handleDeleteClient = (client: Client) => {
+    setClientToDelete(client)
+  }
+
+  const handleCloseDeleteModal = () => {
+    setClientToDelete(null)
+  }
+
+  const handleConfirmDeleteClient = async () => {
+    if (!clientToDelete) return
+
+    try {
+      await deleteClient(clientToDelete.id)
+      toast.success(`Cliente ${clientToDelete.name} eliminado exitosamente`)
+      refreshClients()
+      handleCloseDeleteModal()
+    } catch (error) {
+      console.error('Error al eliminar cliente:', error)
+      toast.error('Error al eliminar el cliente. Por favor, inténtalo de nuevo.')
+    }
   }
 
   const handleCloseRoutineModal = () => {
     console.log('Closing routine assignment modal')
-    setShowRoutineModal(false)
-    setClientForRoutine(null)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('modal')
+    newParams.delete('id')
+    setSearchParams(newParams)
     setSelectedRoutineForAssignment(null)
     setSelectedDaysForClient([])
   }
@@ -280,8 +384,10 @@ const Clients: React.FC = () => {
   }
 
   const handleSelectRoutine = (routineId: string) => {
-    console.log('Selected routine:', routineId)
     setSelectedRoutineForAssignment(routineId)
+    
+    // Limpiar los días seleccionados para nueva asignación
+    setSelectedDaysForClient([])
   }
 
   const handleDayToggle = (day: string) => {
@@ -293,20 +399,51 @@ const Clients: React.FC = () => {
     )
   }
 
-  const handleAssignRoutineToClient = () => {
+  const handleAssignRoutineToClient = async () => {
     if (!selectedRoutineForAssignment || selectedDaysForClient.length === 0) {
-      alert('Por favor selecciona una rutina y al menos un día')
+      toast.error('Por favor selecciona una rutina y al menos un día')
       return
     }
-    
-    // TODO: Implement routine assignment logic
-    console.log('Assigning routine', selectedRoutineForAssignment, 'to client', clientForRoutine, 'on days:', selectedDaysForClient)
-    handleCloseRoutineModal()
+
+    const clientId = searchParams.get('id')
+    if (!clientId) {
+      toast.error('Error: No se pudo identificar el cliente')
+      return
+    }
+
+    try {
+      // Crear objeto con los días asignados
+      const assignedDays: { [key: string]: boolean } = {}
+      selectedDaysForClient.forEach(day => {
+        assignedDays[day] = true
+      })
+
+      // Asignar rutina al cliente
+      await assignRoutineToClient({
+        client_id: parseInt(clientId),
+        routine_id: parseInt(selectedRoutineForAssignment),
+        start_date: new Date().toISOString().split('T')[0],
+        is_active: true,
+        assigned_days: assignedDays
+      })
+
+      // Actualizar la lista de clientes
+      refreshClients()
+      
+      // Cerrar modal y limpiar estado
+      handleCloseRoutineModal()
+      
+      // Mostrar mensaje de éxito
+      toast.success('Rutina asignada exitosamente')
+    } catch (error) {
+      console.error('Error al asignar rutina:', error)
+      toast.error('Error al asignar la rutina. Por favor, inténtalo de nuevo.')
+    }
   }
 
   const formatSelectedDays = (days: string[]) => {
     return days.map(day => {
-      const dayInfo = daysOfWeek.find(d => d.key === day)
+      const dayInfo = DAYS_OF_WEEK.find(d => d.key === day)
       return dayInfo ? dayInfo.label : day
     }).join(', ')
   }
@@ -326,8 +463,83 @@ const Clients: React.FC = () => {
     setSearchParams(newParams)
   }
 
+  const getPreviouslyAssignedDays = (routineId: string) => {
+    const clientId = searchParams.get('id')
+    const client = clients.find(c => c.id.toString() === clientId)
+    
+    if (client?.assigned_routines) {
+      const assignedRoutine = client.assigned_routines.find(routine => {
+        if (typeof routine === 'number') {
+          return routine.toString() === routineId
+        }
+        const assignedRoutine = routine as any
+        return assignedRoutine.routine?.id?.toString() === routineId
+      })
+      
+      if (assignedRoutine && typeof assignedRoutine !== 'number') {
+        const assignedRoutineData = assignedRoutine as any
+        if (assignedRoutineData.assigned_days) {
+          // Convertir assigned_days de objeto a array de strings
+          return Object.keys(assignedRoutineData.assigned_days).filter(day => 
+            assignedRoutineData.assigned_days[day]
+          )
+        }
+      }
+    }
+    return []
+  }
+
+  const isDayPreviouslyAssigned = (dayKey: string) => {
+    if (!selectedRoutineForAssignment) return false
+    const previouslyAssignedDays = getPreviouslyAssignedDays(selectedRoutineForAssignment)
+    return previouslyAssignedDays.includes(dayKey)
+  }
+
+  // Función para obtener todos los días asignados de todas las rutinas del cliente
+  const getAllAssignedDays = () => {
+    const clientId = searchParams.get('id')
+    const client = clients.find(c => c.id.toString() === clientId)
+    
+    if (!client?.assigned_routines) return {}
+    
+    const allDays: { [key: string]: string[] } = {}
+    
+    client.assigned_routines.forEach(assignedRoutine => {
+      if (typeof assignedRoutine === 'number') return
+      
+      const assignedRoutineData = assignedRoutine as any
+      if (assignedRoutineData.assigned_days) {
+        const routineDays = Object.keys(assignedRoutineData.assigned_days).filter(day => 
+          assignedRoutineData.assigned_days[day]
+        )
+        
+        routineDays.forEach(day => {
+          if (!allDays[day]) {
+            allDays[day] = []
+          }
+          allDays[day].push(assignedRoutineData.routine?.name || 'Rutina')
+        })
+      }
+    })
+    
+    return allDays
+  }
+
+  // Función para verificar si un día está sobrecargado (tiene múltiples rutinas)
+  const isDayOverloaded = (dayKey: string) => {
+    const allDays = getAllAssignedDays()
+    return allDays[dayKey] && allDays[dayKey].length > 1
+  }
+
+  // Función para obtener las rutinas que están asignadas a un día específico
+  const getRoutinesForDay = (dayKey: string) => {
+    const allDays = getAllAssignedDays()
+    return allDays[dayKey] || []
+  }
+
   return (
     <div className="space-y-6">
+      <Toaster position="top-right" />
       <div className="space-y-2">
         <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
         <p className="text-gray-600">Gestiona tus clientes y su información</p>
@@ -487,8 +699,7 @@ const Clients: React.FC = () => {
             <CardContent id="expiring-accordion-content">
               <div className="space-y-3">
                 {expiringClients.slice(0, 5).map((client) => {
-                  const subscription = (client as any).subscription
-                  const status = getSubscriptionStatus(subscription.startDate, subscription.endDate)
+                  const status = getSubscriptionStatus(client.subscription_start!, client.subscription_end!)
                   return (
                     <div 
                       key={client.id}
@@ -501,7 +712,7 @@ const Clients: React.FC = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <Avatar className="w-8 h-8">
-                            <AvatarImage src={client.profileImage} alt={client.name} />
+                            <AvatarImage src={client.profile_image} alt={client.name} />
                             <AvatarFallback className="text-xs">
                               {client.name.split(' ').map(n => n[0]).join('')}
                             </AvatarFallback>
@@ -509,7 +720,7 @@ const Clients: React.FC = () => {
                           <div>
                             <p className="font-medium text-gray-900">{client.name}</p>
                             <p className="text-sm text-gray-600">
-                              {getSubscriptionName(subscription.type)} - Vence {subscription.endDate}
+                              {getSubscriptionName(client.subscription_type || 'standard')} - Vence {client.subscription_end}
                             </p>
                           </div>
                         </div>
@@ -564,23 +775,21 @@ const Clients: React.FC = () => {
           </Card>
         ) : (
           filteredClients.map((client) => {
-            const subscription = (client as any).subscription
-            const subscriptionStatus = subscription?.startDate && subscription?.endDate 
-              ? getSubscriptionStatus(subscription.startDate, subscription.endDate)
+            const subscriptionStatus = client.subscription_start && client.subscription_end 
+              ? getSubscriptionStatus(client.subscription_start, client.subscription_end)
               : null
             
             return (
               <Card 
                 key={client.id} 
-                className={`cursor-pointer transition-all hover:shadow-md ${
-                  selectedClient === client.id ? 'ring-2 ring-primary-500' : ''
-                } ${subscriptionStatus ? getSubscriptionHighlightClass(subscriptionStatus.status) : ''}`}
-                onClick={() => setSelectedClient(selectedClient === client.id ? null : client.id)}
+                className={`transition-all hover:shadow-md ${
+                  subscriptionStatus ? getSubscriptionHighlightClass(subscriptionStatus.status) : ''
+                }`}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start space-x-4">
                     <Avatar className="w-12 h-12">
-                      <AvatarImage src={client.profileImage} alt={client.name} />
+                      <AvatarImage src={client.profile_image} alt={client.name} />
                       <AvatarFallback>
                         {client.name.split(' ').map(n => n[0]).join('')}
                       </AvatarFallback>
@@ -599,12 +808,12 @@ const Clients: React.FC = () => {
                               {client.age} años
                             </Badge>
                           )}
-                          {subscription?.type && (
+                          {client.subscription_type && (
                             <Badge 
                               variant="outline" 
-                              className={`text-xs ${getSubscriptionColor(subscription.type)}`}
+                              className={`text-xs ${getSubscriptionColor(client.subscription_type)}`}
                             >
-                              {getSubscriptionName(subscription.type)}
+                              {getSubscriptionName(client.subscription_type)}
                             </Badge>
                           )}
                           {subscriptionStatus && (
@@ -642,7 +851,7 @@ const Clients: React.FC = () => {
                         
                         <div className="flex items-center space-x-2">
                           <Calendar className="w-4 h-4" />
-                          <span>Miembro desde {formatDate(client.joinDate)}</span>
+                          <span>Miembro desde {formatDate(client.join_date)}</span>
                         </div>
                         
                         <div className="flex items-center space-x-2">
@@ -671,11 +880,11 @@ const Clients: React.FC = () => {
                           )}
                         </div>
                         
-                        {(client as any).assignedRoutines?.length > 0 && (
+                        {client.assigned_routines?.length > 0 && (
                           <div className="flex items-center space-x-1">
                             <Clock className="w-4 h-4 text-gray-500" />
                             <span className="text-sm text-gray-600">
-                              {(client as any).assignedRoutines.length} rutina{(client as any).assignedRoutines.length > 1 ? 's' : ''}
+                              {client.assigned_routines.length} rutina{client.assigned_routines.length > 1 ? 's' : ''}
                             </span>
                           </div>
                         )}
@@ -735,6 +944,32 @@ const Clients: React.FC = () => {
                           <Target className="w-4 h-4 mr-1" />
                           Asignar Rutina
                         </Button>
+                        {client.assigned_routines?.length > 0 && (
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleEditRoutines(client.id)
+                            }}
+                            className="flex-1"
+                          >
+                            <Edit className="w-4 h-4 mr-1" />
+                            Editar Rutinas
+                          </Button>
+                        )}
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteClient(client)
+                          }}
+                          className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" />
+                          Eliminar
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -744,163 +979,6 @@ const Clients: React.FC = () => {
           })
         )}
       </div>
-
-      {/* Client Details Modal */}
-      {selectedClient && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-            <CardHeader>
-              <CardTitle>Detalles del Cliente</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {(() => {
-                const client = clients.find(c => c.id === selectedClient)
-                if (!client) return null
-                
-                return (
-                  <>
-                    {/* Basic Info */}
-                    <div className="flex items-center space-x-4">
-                      <Avatar className="w-16 h-16">
-                        <AvatarImage src={client.profileImage} />
-                        <AvatarFallback>
-                          {client.name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <h3 className="font-semibold text-lg">{client.name}</h3>
-                        <p className="text-gray-600">{client.email}</p>
-                        {client.phone && (
-                          <p className="text-sm text-gray-500">{client.phone}</p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Physical & Contact Info */}
-                    <div className="grid grid-cols-2 gap-4">
-                      {client.age > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Edad</p>
-                          <p className="text-lg font-semibold">{client.age} años</p>
-                        </div>
-                      )}
-                      {client.weight > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Peso</p>
-                          <p className="text-lg font-semibold">{client.weight} kg</p>
-                        </div>
-                      )}
-                      {client.height > 0 && (
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Altura</p>
-                          <p className="text-lg font-semibold">{client.height} cm</p>
-                        </div>
-                      )}
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Miembro desde</p>
-                        <p className="text-lg font-semibold">{formatDate(client.joinDate)}</p>
-                      </div>
-                    </div>
-                    
-                    {/* Goals */}
-                    {getClientGoals(client.id).length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-600 mb-2">Metas de Entrenamiento</p>
-                        <div className="flex flex-wrap gap-2">
-                          {getClientGoals(client.id).map((goal, index) => (
-                            <Badge key={index} variant="secondary">
-                              {goal}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Subscription Details */}
-                    {(client as any).subscription?.type && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-600 mb-2">Suscripción</p>
-                        <div className="p-4 bg-gray-50 rounded-lg">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium capitalize">
-                              {getSubscriptionName((client as any).subscription.type)}
-                            </span>
-                            <Badge 
-                              variant="outline" 
-                              className={getSubscriptionColor((client as any).subscription.type)}
-                            >
-                              {(client as any).subscription.type}
-                            </Badge>
-                          </div>
-                          {(client as any).subscription.startDate && (
-                            <p className="text-sm text-gray-600">
-                              <strong>Inicio:</strong> {(client as any).subscription.startDate}
-                            </p>
-                          )}
-                          {(client as any).subscription.endDate && (
-                            <p className="text-sm text-gray-600">
-                              <strong>Fin:</strong> {(client as any).subscription.endDate}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Assigned Routines */}
-                    {(client as any).assignedRoutines?.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-600 mb-2">Rutinas Asignadas</p>
-                        <div className="space-y-2">
-                          {(client as any).assignedRoutines.map((routineId: string, index: number) => (
-                            <div key={index} className="p-2 bg-gray-50 rounded text-sm">
-                              Rutina #{index + 1} (ID: {routineId})
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Additional Information */}
-                    {((client as any).notes || (client as any).emergencyContact || (client as any).medicalConditions) && (
-                      <div className="space-y-4">
-                                                 {(client as any).emergencyContact && (
-                           <div>
-                             <p className="text-sm font-medium text-gray-600 mb-1">Contacto de Emergencia</p>
-                             <p className="text-sm">{(client as any).emergencyContact}</p>
-                           </div>
-                         )}
-                         
-                         {(client as any).medicalConditions && (
-                           <div>
-                             <p className="text-sm font-medium text-gray-600 mb-1">Condiciones Médicas</p>
-                             <p className="text-sm">{(client as any).medicalConditions}</p>
-                           </div>
-                         )}
-                         
-                         {(client as any).notes && (
-                           <div>
-                             <p className="text-sm font-medium text-gray-600 mb-1">Notas Adicionales</p>
-                             <p className="text-sm">{(client as any).notes}</p>
-                           </div>
-                         )}
-                      </div>
-                    )}
-                    
-                    <div className="flex space-x-2 pt-4">
-                      <Button variant="outline" className="flex-1">
-                        Editar
-                      </Button>
-                      <Button className="flex-1 bg-primary-600 hover:bg-primary-700">
-                        Ver Progreso
-                      </Button>
-                    </div>
-                  </>
-                )
-              })()}
-            </CardContent>
-          </Card>
-        </div>
-      )}
 
       {/* Subscription Renewal Modal */}
       {isRenewalModalOpen && clientIdFromPath && (
@@ -1056,7 +1134,7 @@ const Clients: React.FC = () => {
       )}
 
       {/* Assign Routine Modal */}
-      {showRoutineModal && clientForRoutine && (
+      {isAssignRoutineModalOpen && searchParams.get('id') && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
           onClick={handleCloseRoutineModal}
@@ -1077,81 +1155,166 @@ const Clients: React.FC = () => {
               </Button>
             </CardHeader>
             <div className="max-h-[calc(80vh-80px)] overflow-y-auto">
-              <CardContent className="space-y-4">
-                <div className="text-center">
+              <CardContent className="space-y-6">
+                <div className="text-center pt-2">
                   <p className="text-sm text-gray-600">
-                    Selecciona una rutina y días para{' '}
+                    Selecciona una rutina y los días de la semana para{' '}
                     <span className="font-semibold">
-                      {clients.find(c => c.id === clientForRoutine)?.name}
+                      {clients.find(c => c.id === searchParams.get('id'))?.name}
                     </span>
                   </p>
-                </div>
-                
-                {/* Debug Info */}
-                <div className="text-xs text-gray-400 p-2 bg-gray-50 rounded">
-                  <p>Modal abierto: {showRoutineModal ? 'Sí' : 'No'}</p>
-                  <p>Cliente: {clientForRoutine}</p>
-                  <p>Rutina seleccionada: {selectedRoutineForAssignment || 'Ninguna'}</p>
-                  <p>Días seleccionados: {selectedDaysForClient.length}</p>
                 </div>
                 
                 {/* Routine Selection */}
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-gray-600">1. Selecciona una Rutina</p>
-                  <div className="space-y-2">
-                    {mockRoutines.map((routine) => (
-                      <Card 
-                        key={routine.id}
-                        className={`cursor-pointer transition-all ${
-                          selectedRoutineForAssignment === routine.id 
-                            ? 'ring-2 ring-primary-500 bg-primary-50' 
-                            : 'hover:shadow-md'
-                        }`}
-                        onClick={() => handleSelectRoutine(routine.id)}
-                      >
-                        <CardContent className="p-3">
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-semibold text-sm">{routine.name}</h4>
-                              <Badge variant="secondary" className="text-xs">
-                                {routine.daysPerWeek} días/semana
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-gray-600">{routine.description}</p>
-                            <div className="flex items-center space-x-2 text-xs text-gray-500">
-                              <span>{routine.duration} semanas</span>
-                              <span>•</span>
-                              <span>{routine.workouts.length} entrenamientos</span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                  {routinesLoading ? (
+                    <div className="text-center py-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
+                      <p className="text-sm text-gray-600 mt-2">Cargando rutinas...</p>
+                    </div>
+                  ) : routinesError ? (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-red-600">Error al cargar rutinas: {routinesError}</p>
+                    </div>
+                  ) : routines && routines.length > 0 ? (
+                    <div className="space-y-2">
+                      {routines.map((routine) => {
+                        const clientId = searchParams.get('id')
+                        const client = clients.find(c => c.id.toString() === clientId)
+                        const isAlreadyAssigned = client?.assigned_routines?.some(assignedRoutine => {
+                          // Si assignedRoutine es un número, comparar directamente
+                          if (typeof assignedRoutine === 'number') {
+                            return assignedRoutine === routine.id
+                          }
+                          // Si assignedRoutine es un objeto, comparar con routine.id
+                          return assignedRoutine.routine?.id === routine.id
+                        })
+                        
+                        return (
+                          <Card 
+                            key={routine.id}
+                            className={`transition-all ${
+                              isAlreadyAssigned
+                                ? 'ring-1 ring-green-500 bg-green-50 cursor-not-allowed opacity-75'
+                                : selectedRoutineForAssignment === routine.id 
+                                ? 'ring-2 ring-primary-500 bg-primary-50 cursor-pointer' 
+                                : 'hover:shadow-md cursor-pointer'
+                            }`}
+                            onClick={() => !isAlreadyAssigned && handleSelectRoutine(routine.id)}
+                          >
+                            <CardContent className="p-3">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-2">
+                                    <h4 className="font-semibold text-sm">{routine.name}</h4>
+                                    {isAlreadyAssigned && (
+                                      <Badge variant="outline" className="text-xs text-green-600 border-green-500">
+                                        Ya Asignada
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {routine.days_per_week} días/semana
+                                  </Badge>
+                                </div>
+                                <p className="text-xs text-gray-600">{routine.description}</p>
+                                <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                  <span>{routine.duration} semanas</span>
+                                  <span>•</span>
+                                  <span>{routine.workouts.length} entrenamientos</span>
+                                </div>
+                                {isAlreadyAssigned && (
+                                  <p className="text-xs text-green-600 font-medium">
+                                    Esta rutina ya está asignada al cliente
+                                  </p>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <p className="text-sm text-gray-600">No hay rutinas disponibles</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Day Selection */}
                 {selectedRoutineForAssignment && (
                   <div className="space-y-2">
                     <p className="text-sm font-medium text-gray-600">2. Selecciona los Días</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {daysOfWeek.map((day) => (
-                        <Button
-                          key={day.key}
-                          variant={selectedDaysForClient.includes(day.key) ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => handleDayToggle(day.key)}
-                          className="justify-start"
-                        >
-                          {day.label}
-                        </Button>
-                      ))}
+                    
+                    <div className="flex flex-wrap gap-1 justify-center">
+                      {DAYS_OF_WEEK.map((day) => {
+                        const isSelected = selectedDaysForClient.includes(day.key)
+                        const isPreviouslyAssigned = isDayPreviouslyAssigned(day.key)
+                        const isOverloaded = isDayOverloaded(day.key)
+                        const routinesForDay = getRoutinesForDay(day.key)
+                        
+                        return (
+                          <Button
+                            key={day.key}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDayToggle(day.key)}
+                            className={`text-xs px-2 py-1 ${
+                              isSelected
+                                ? 'bg-green-50 border-green-500 text-green-600 hover:bg-green-100' 
+                                : isPreviouslyAssigned
+                                ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
+                                : isOverloaded
+                                ? 'bg-yellow-50 border-yellow-300 text-yellow-600 hover:bg-yellow-100'
+                                : 'hover:bg-gray-50'
+                            }`}
+                            title={
+                              isOverloaded 
+                                ? `Sobrecargado: ${routinesForDay.join(', ')}` 
+                                : isPreviouslyAssigned 
+                                ? `Ya asignado: ${day.label}` 
+                                : day.label
+                            }
+                          >
+                            {day.short}
+                            {isOverloaded && (
+                              <span className="ml-1 text-xs font-bold">!</span>
+                            )}
+                          </Button>
+                        )
+                      })}
                     </div>
                     {selectedDaysForClient.length > 0 && (
                       <p className="text-xs text-gray-500">
                         Días seleccionados: {formatSelectedDays(selectedDaysForClient)}
                       </p>
                     )}
+                    
+                    {/* Información sobre días sobrecargados */}
+                    {(() => {
+                      const overloadedDays = DAYS_OF_WEEK.filter(day => isDayOverloaded(day.key))
+                      if (overloadedDays.length > 0) {
+                        return (
+                          <div className="mt-3 p-2 bg-orange-50 border border-orange-200 rounded-md">
+                            <p className="text-xs font-medium text-orange-800 mb-1">
+                              ⚠️ Días con múltiples rutinas:
+                            </p>
+                            <div className="space-y-1">
+                              {overloadedDays.map(day => {
+                                const routines = getRoutinesForDay(day.key)
+                                return (
+                                  <p key={day.key} className="text-xs text-orange-700">
+                                    <span className="font-medium">{day.label}:</span> {routines.join(', ')}
+                                  </p>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </div>
                 )}
                 
@@ -1161,8 +1324,16 @@ const Clients: React.FC = () => {
                     <Button 
                       className="w-full bg-primary-600 hover:bg-primary-700"
                       onClick={handleAssignRoutineToClient}
+                      disabled={assigningRoutine}
                     >
-                      Asignar Rutina
+                      {assigningRoutine ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Asignando...
+                        </>
+                      ) : (
+                        'Asignar Rutina'
+                      )}
                     </Button>
                   </div>
                 )}
@@ -1178,6 +1349,93 @@ const Clients: React.FC = () => {
         onClose={closeClientCreator}
         onSave={handleCreateClient}
       />
+
+      {/* Edit Routines Modal */}
+      {isEditRoutinesModalOpen && searchParams.get('id') && (
+        <RoutineEditor
+          isOpen={isEditRoutinesModalOpen}
+          onClose={handleCloseEditRoutinesModal}
+          clientId={searchParams.get('id')!}
+          onRoutinesUpdated={() => {
+            refreshClients()
+          }}
+        />
+      )}
+
+      {/* Delete Client Confirmation Modal */}
+      {clientToDelete && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={handleCloseDeleteModal}
+        >
+          <Card 
+            className="w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white sticky top-0 z-10 border-b">
+              <CardTitle className="text-red-600">Eliminar Cliente</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCloseDeleteModal}
+                className="h-8 w-8 p-0 hover:bg-gray-100 flex-shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-4 p-6">
+              <div className="text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 className="w-8 h-8 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  ¿Estás seguro de que quieres eliminar este cliente?
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Esta acción no se puede deshacer. Se eliminarán todos los datos del cliente, incluyendo:
+                </p>
+                <ul className="text-sm text-gray-600 text-left space-y-1 mb-6">
+                  <li>• Información personal</li>
+                  <li>• Rutinas asignadas</li>
+                  <li>• Progreso y métricas</li>
+                  <li>• Historial de entrenamientos</li>
+                </ul>
+                <div className="bg-gray-50 p-3 rounded-lg mb-6">
+                  <p className="text-sm font-medium text-gray-900">
+                    Cliente a eliminar: <span className="text-red-600">{clientToDelete.name}</span>
+                  </p>
+                  <p className="text-xs text-gray-600">{clientToDelete.email}</p>
+                </div>
+              </div>
+
+              <div className="flex space-x-3">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCloseDeleteModal}
+                  className="flex-1"
+                  disabled={deletingClient}
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  onClick={handleConfirmDeleteClient}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                  disabled={deletingClient}
+                >
+                  {deletingClient ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Eliminando...
+                    </>
+                  ) : (
+                    'Eliminar Cliente'
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }

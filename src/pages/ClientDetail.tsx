@@ -1,30 +1,84 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { 
-  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home
+  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
-import { mockClients, mockRoutines, mockExercises, mockProgressMetrics } from '../data/mockData'
+import ClientCreator from '../components/ClientCreator'
+import RoutineEditor from '../components/RoutineEditor'
+import { mockRoutines, mockExercises } from '../data/mockData'
 import { formatDate } from '../lib/utils'
-
-// MOCK: ID del cliente autenticado
-const AUTHENTICATED_CLIENT_ID = '1' // Cambia este valor para simular otro cliente
+import { useAuth } from '../contexts/AuthContext'
+import { DAYS_OF_WEEK, getCurrentDayOfWeek, getSubscriptionStatus } from '../definitions'
+import { useApi, usePaginatedApi } from '../hooks/useApi'
+import { clientsAPI, exercisesAPI, routinesAPI, clientRoutinesAPI } from '../lib/api'
+import type { Client, ProgressMetrics, Routine, Exercise } from '../lib/api'
 
 const ClientDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const currentDayParam = searchParams.get('day')
   const [currentDay, setCurrentDay] = useState(currentDayParam || getCurrentDayOfWeek())
 
-  // Usar el ID autenticado directamente, o el de la URL si existe (para compatibilidad)
-  const clientId = id || AUTHENTICATED_CLIENT_ID
+  // Usar el ID de la URL o el ID del cliente autenticado
+  const clientId = id || user?.clientId
 
-  // Solo permitir ver la info si el id coincide con el mock autenticado
-  if (clientId !== AUTHENTICATED_CLIENT_ID) {
+  // Check if edit modal should be shown
+  const isEditModalOpen = searchParams.get('modal') === 'edit-client'
+  const isEditRoutinesModalOpen = searchParams.get('modal') === 'edit-routines'
+
+  // Hooks para cargar datos desde la API
+  const {
+    data: client,
+    loading: clientLoading,
+    error: clientError,
+    execute: loadClient
+  } = useApi<Client>(clientsAPI.getById)
+
+  const {
+    data: clientProgress,
+    loading: progressLoading,
+    error: progressError,
+    execute: loadProgress
+  } = useApi<ProgressMetrics[]>(clientsAPI.getProgress)
+
+  const {
+    data: clientRoutines,
+    loading: routinesLoading,
+    error: routinesError,
+    execute: loadRoutines
+  } = useApi<Routine[]>(clientsAPI.getRoutines)
+
+  // Cargar datos al montar el componente
+  useEffect(() => {
+    if (clientId) {
+      loadClient(parseInt(clientId))
+      loadProgress(parseInt(clientId))
+      loadRoutines(parseInt(clientId))
+    }
+  }, [clientId, loadClient, loadProgress, loadRoutines])
+
+  // Verificar permisos de acceso
+  const hasAccess = () => {
+    // Administradores y entrenadores pueden acceder a cualquier cliente
+    if (user?.role === 'admin' || user?.role === 'trainer') {
+      return true
+    }
+    
+    // Clientes solo pueden ver su propia información
+    if (user?.role === 'client' && user?.clientId === clientId) {
+      return true
+    }
+    
+    return false
+  }
+
+  if (!hasAccess()) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="flex items-center justify-center min-h-screen">
@@ -42,18 +96,34 @@ const ClientDetail: React.FC = () => {
     )
   }
 
-  const client = mockClients.find(c => c.id === clientId)
-  const clientProgress = mockProgressMetrics.filter(p => p.clientId === clientId)
-  const latestProgress = clientProgress.length > 0 ? 
-    clientProgress.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] : null
-  
-  if (!client) {
+  // Mostrar loading mientras se cargan los datos
+  if (clientLoading) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="flex items-center justify-center min-h-screen">
           <div className="text-center">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Cliente no encontrado</h2>
-            <p className="text-gray-600 mb-4">El cliente que buscas no existe</p>
+            <Loader2 className="w-12 h-12 text-primary-600 mx-auto mb-4 animate-spin" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Cargando cliente...</h2>
+            <p className="text-gray-600">Obteniendo información del cliente</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Mostrar error si no se pudo cargar el cliente
+  if (clientError || !client) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              {clientError ? 'Error al cargar cliente' : 'Cliente no encontrado'}
+            </h2>
+            <p className="text-gray-600 mb-4">
+              {clientError || 'El cliente que buscas no existe'}
+            </p>
             <Button onClick={() => navigate('/')}>
               <Home className="w-4 h-4 mr-2" />
               Ir al Inicio
@@ -63,66 +133,67 @@ const ClientDetail: React.FC = () => {
       </div>
     )
   }
-  function getCurrentDayOfWeek(): string {
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-    return days[new Date().getDay()]
-  }
-  const daysOfWeek = [
-    { key: 'monday', label: 'Lunes', short: 'Lun' },
-    { key: 'tuesday', label: 'Martes', short: 'Mar' },
-    { key: 'wednesday', label: 'Miércoles', short: 'Mié' },
-    { key: 'thursday', label: 'Jueves', short: 'Jue' },
-    { key: 'friday', label: 'Viernes', short: 'Vie' },
-    { key: 'saturday', label: 'Sábado', short: 'Sáb' },
-    { key: 'sunday', label: 'Domingo', short: 'Dom' }
-  ]
-  const assignedRoutines = client.assignedRoutines?.map(routineId => 
-    mockRoutines.find(r => r.id === routineId)
-  ).filter(Boolean) || []
+
+  // Obtener el progreso más reciente
+  const latestProgress = clientProgress && clientProgress.length > 0 ? 
+    clientProgress.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] : null
+
+  // Usar las constantes importadas de definitions.ts
+  // Filtrar rutinas duplicadas basándose en el ID de la rutina
+  const assignedRoutines = clientRoutines ? 
+    clientRoutines.filter((routine, index, self) => 
+      index === self.findIndex(r => r.id === routine.id)
+    ) : []
+  
   const getRoutineForDay = (day: string) => {
     return assignedRoutines.find(routine => 
-      routine?.scheduledDays?.includes(day)
+      routine?.scheduled_days?.includes(day)
     )
   }
+  
   const currentRoutine = getRoutineForDay(currentDay)
+  
   const navigateToDay = (day: string) => {
     setCurrentDay(day)
     const newParams = new URLSearchParams(searchParams)
     newParams.set('day', day)
     setSearchParams(newParams)
   }
+  
   const navigateToPreviousDay = () => {
-    const currentIndex = daysOfWeek.findIndex(d => d.key === currentDay)
-    const previousIndex = currentIndex === 0 ? daysOfWeek.length - 1 : currentIndex - 1
-    navigateToDay(daysOfWeek[previousIndex].key)
+    const currentIndex = DAYS_OF_WEEK.findIndex(d => d.key === currentDay)
+    const previousIndex = currentIndex === 0 ? DAYS_OF_WEEK.length - 1 : currentIndex - 1
+    navigateToDay(DAYS_OF_WEEK[previousIndex].key)
   }
+  
   const navigateToNextDay = () => {
-    const currentIndex = daysOfWeek.findIndex(d => d.key === currentDay)
-    const nextIndex = currentIndex === daysOfWeek.length - 1 ? 0 : currentIndex + 1
-    navigateToDay(daysOfWeek[nextIndex].key)
+    const currentIndex = DAYS_OF_WEEK.findIndex(d => d.key === currentDay)
+    const nextIndex = currentIndex === DAYS_OF_WEEK.length - 1 ? 0 : currentIndex + 1
+    navigateToDay(DAYS_OF_WEEK[nextIndex].key)
   }
-  const getSubscriptionStatus = (startDate: string, endDate: string) => {
-    const start = new Date(startDate)
-    const end = new Date(endDate)
-    const today = new Date()
-    const totalDuration = end.getTime() - start.getTime()
-    const elapsed = today.getTime() - start.getTime()
-    const progress = elapsed / totalDuration
-    const daysUntilExpiration = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    if (daysUntilExpiration < 0) {
-      return { status: 'expired', days: daysUntilExpiration, progress }
-    } else if (daysUntilExpiration <= 7) {
-      return { status: 'critical', days: daysUntilExpiration, progress }
-    } else if (daysUntilExpiration <= 30) {
-      return { status: 'warning', days: daysUntilExpiration, progress }
-    } else if (progress > 0.5) {
-      return { status: 'halfway', days: daysUntilExpiration, progress }
-    } else {
-      return { status: 'active', days: daysUntilExpiration, progress }
+  
+  const subscriptionStatus = client.subscription_start && client.subscription_end ? 
+    getSubscriptionStatus(client.subscription_start, client.subscription_end) : null
+
+  const handleCloseEditModal = () => {
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('modal')
+    setSearchParams(newParams)
+  }
+
+  const handleSaveClient = async (clientData: any) => {
+    try {
+      if (clientId) {
+        await clientsAPI.update(parseInt(clientId), clientData)
+        // Recargar los datos del cliente
+        loadClient(parseInt(clientId))
+      }
+      handleCloseEditModal()
+    } catch (error) {
+      console.error('Error al actualizar cliente:', error)
     }
   }
-  const subscriptionStatus = client.subscription ? 
-    getSubscriptionStatus(client.subscription.startDate, client.subscription.endDate) : null
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header independiente */}
@@ -135,14 +206,24 @@ const ClientDetail: React.FC = () => {
                 Dashboard
               </Button>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Mi Rutina</h1>
-                <p className="text-sm text-gray-600">Detalle de mi información y rutinas</p>
+                <h1 className="text-xl font-bold text-gray-900">
+                  {user?.role === 'client' ? 'Mi Rutina' : `Cliente: ${client?.name || 'Cargando...'}`}
+                </h1>
+                <p className="text-sm text-gray-600">
+                  {user?.role === 'client' ? 'Detalle de mi información y rutinas' : 'Información del cliente y rutinas asignadas'}
+                </p>
               </div>
             </div>
             <Avatar className="w-10 h-10">
-              <AvatarImage src={client.profileImage} alt={client.name} />
+              <AvatarImage 
+                src={user?.role === 'client' ? client.profile_image : undefined} 
+                alt={user?.role === 'client' ? client.name : user?.name || ''} 
+              />
               <AvatarFallback>
-                {client.name.split(' ').map(n => n[0]).join('')}
+                {user?.role === 'client' 
+                  ? client.name.split(' ').map(n => n[0]).join('')
+                  : user?.name?.split(' ').map(n => n[0]).join('') || 'U'
+                }
               </AvatarFallback>
             </Avatar>
           </div>
@@ -163,7 +244,7 @@ const ClientDetail: React.FC = () => {
               <CardContent className="space-y-4">
                 <div className="flex items-center space-x-3">
                   <Avatar className="w-16 h-16">
-                    <AvatarImage src={client.profileImage} alt={client.name} />
+                    <AvatarImage src={client.profile_image} alt={client.name} />
                     <AvatarFallback>
                       {client.name.split(' ').map(n => n[0]).join('')}
                     </AvatarFallback>
@@ -206,19 +287,19 @@ const ClientDetail: React.FC = () => {
                   )}
                   <div className="flex items-center space-x-2">
                     <Calendar className="w-4 h-4 text-gray-400" />
-                    <div>
-                      <p className="text-sm font-medium">Miembro desde</p>
-                      <p className="text-lg font-semibold">{formatDate(client.joinDate)}</p>
-                    </div>
+                                          <div>
+                        <p className="text-sm font-medium">Miembro desde</p>
+                        <p className="text-lg font-semibold">{formatDate(new Date(client.join_date))}</p>
+                      </div>
                   </div>
                 </div>
-                {client.goals.length > 0 && (
+                {client.goals && Array.isArray(client.goals) && client.goals.length > 0 && (
                   <div>
                     <p className="text-sm font-medium text-gray-600 mb-2">Mis Metas de Entrenamiento</p>
                     <div className="flex flex-wrap gap-2">
                       {client.goals.map((goal, index) => (
                         <Badge key={index} variant="secondary" className="text-xs">
-                          {goal}
+                          {typeof goal === 'string' ? goal : goal.title || 'Meta'}
                         </Badge>
                       ))}
                     </div>
@@ -238,7 +319,7 @@ const ClientDetail: React.FC = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-sm text-gray-600 mb-4">
-                    <p>Última actualización: {formatDate(latestProgress.date)}</p>
+                    <p>Última actualización: {formatDate(new Date(latestProgress.date))}</p>
                   </div>
                   
                   {/* Medidas principales */}
@@ -250,71 +331,45 @@ const ClientDetail: React.FC = () => {
                         <p className="text-lg font-semibold">{latestProgress.weight} kg</p>
                       </div>
                     </div>
-                    {latestProgress.bodyFat && (
+                    {latestProgress.body_fat && (
                       <div className="flex items-center space-x-2">
                         <Activity className="w-4 h-4 text-gray-400" />
                         <div>
                           <p className="text-sm font-medium">Grasa Corporal</p>
-                          <p className="text-lg font-semibold">{latestProgress.bodyFat}%</p>
+                          <p className="text-lg font-semibold">{latestProgress.body_fat}%</p>
                         </div>
                       </div>
                     )}
-                    {latestProgress.muscleMass && (
+                    {latestProgress.muscle_mass && (
                       <div className="flex items-center space-x-2">
                         <Target className="w-4 h-4 text-gray-400" />
                         <div>
                           <p className="text-sm font-medium">Masa Muscular</p>
-                          <p className="text-lg font-semibold">{latestProgress.muscleMass} kg</p>
+                          <p className="text-lg font-semibold">{latestProgress.muscle_mass} kg</p>
                         </div>
                       </div>
                     )}
                   </div>
 
                   {/* Medidas corporales */}
-                  <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Medidas Corporales (cm)</h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Pecho</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.chest} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Cintura</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.waist} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Bíceps</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.biceps} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Antebrazos</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.forearms} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Muslos</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.thighs} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Pantorrillas</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.calves} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Cuello</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.neck} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Hombros</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.shoulders} cm</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-gray-600">Cadera</p>
-                        <p className="text-lg font-semibold">{latestProgress.measurements.hips} cm</p>
+                  {latestProgress.measurements && (
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-3">Medidas Corporales (cm)</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                                                 {Object.entries(latestProgress.measurements).map(([key, value]) => (
+                           <div key={key} className="bg-gray-50 p-3 rounded-lg">
+                             <p className="text-sm font-medium text-gray-600 capitalize">
+                               {key.replace('_', ' ')}
+                             </p>
+                             <p className="text-lg font-semibold">{String(value)} cm</p>
+                           </div>
+                         ))}
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Botón para ver historial */}
-                  {clientProgress.length > 1 && (
+                  {clientProgress && clientProgress.length > 1 && (
                     <div className="pt-2">
                       <Button 
                         variant="outline" 
@@ -330,7 +385,7 @@ const ClientDetail: React.FC = () => {
               </Card>
             )}
             
-            {client.subscription && (
+            {client.subscription_type && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -341,29 +396,33 @@ const ClientDetail: React.FC = () => {
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="font-medium capitalize">
-                      {client.subscription.type === 'premium' ? 'Premium' : 
-                       client.subscription.type === 'personalized' ? 'Personalizada' : 'Estándar'}
+                      {client.subscription_type === 'premium' ? 'Premium' : 
+                       client.subscription_type === 'personalized' ? 'Personalizada' : 'Estándar'}
                     </span>
                     <Badge 
                       variant="outline" 
                       className={
-                        client.subscription.type === 'premium' ? 'border-purple-200 text-purple-700 bg-purple-50' :
-                        client.subscription.type === 'personalized' ? 'border-green-200 text-green-700 bg-green-50' :
+                        client.subscription_type === 'premium' ? 'border-purple-200 text-purple-700 bg-purple-50' :
+                        client.subscription_type === 'personalized' ? 'border-green-200 text-green-700 bg-green-50' :
                         'border-blue-200 text-blue-700 bg-blue-50'
                       }
                     >
-                      {client.subscription.type}
+                      {client.subscription_type}
                     </Badge>
                   </div>
                   <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Inicio:</span>
-                      <span>{client.subscription.startDate}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Fin:</span>
-                      <span>{client.subscription.endDate}</span>
-                    </div>
+                    {client.subscription_start && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Inicio:</span>
+                        <span>{client.subscription_start}</span>
+                      </div>
+                    )}
+                    {client.subscription_end && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Fin:</span>
+                        <span>{client.subscription_end}</span>
+                      </div>
+                    )}
                   </div>
                   {subscriptionStatus && (
                     <div className={`p-3 rounded-lg border ${
@@ -373,35 +432,44 @@ const ClientDetail: React.FC = () => {
                         ? 'bg-yellow-50 border-yellow-200'
                         : 'bg-green-50 border-green-200'
                     }`}>
-                      <div className="flex items-center space-x-2">
-                        {subscriptionStatus.status === 'expired' || subscriptionStatus.status === 'critical' ? (
-                          <AlertTriangle className="w-4 h-4 text-red-600" />
-                        ) : subscriptionStatus.status === 'warning' || subscriptionStatus.status === 'halfway' ? (
-                          <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                        ) : (
-                          <CheckCircle className="w-4 h-4 text-green-600" />
-                        )}
-                        <div>
-                          <p className="text-sm font-medium">
-                            {subscriptionStatus.status === 'expired' ? 'Suscripción Vencida' :
-                             subscriptionStatus.status === 'critical' ? 'Vence Pronto' :
-                             subscriptionStatus.status === 'warning' ? 'Vence en 30 días' :
-                             subscriptionStatus.status === 'halfway' ? 'Más de 50% completada' :
-                             'Activa'}
-                          </p>
-                          {subscriptionStatus.status !== 'expired' && (
-                            <p className="text-xs text-gray-600">
-                              {subscriptionStatus.days} días restantes
-                            </p>
-                          )}
-                        </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">
+                          {subscriptionStatus.status === 'expired' ? 'Suscripción vencida' :
+                           subscriptionStatus.status === 'critical' ? 'Vence pronto' :
+                           subscriptionStatus.status === 'warning' ? 'Atención' :
+                           subscriptionStatus.status === 'halfway' ? 'Más de 50% completada' :
+                           'Activa'}
+                        </span>
+                        <Badge 
+                          variant="outline" 
+                          className={
+                            subscriptionStatus.status === 'expired' || subscriptionStatus.status === 'critical'
+                              ? 'border-red-300 text-red-700 bg-red-100'
+                              : subscriptionStatus.status === 'warning' || subscriptionStatus.status === 'halfway'
+                              ? 'border-yellow-300 text-yellow-700 bg-yellow-100'
+                              : 'border-green-300 text-green-700 bg-green-100'
+                          }
+                        >
+                          {subscriptionStatus.status === 'expired' 
+                            ? 'Vencida' 
+                            : subscriptionStatus.status === 'critical'
+                            ? `${subscriptionStatus.days} días`
+                            : subscriptionStatus.status === 'warning'
+                            ? `${subscriptionStatus.days} días`
+                            : subscriptionStatus.status === 'halfway'
+                            ? 'Más de 50%'
+                            : 'Activa'
+                          }
+                        </Badge>
                       </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
             )}
-            {(client.notes || client.emergencyContact || client.medicalConditions) && (
+
+            {/* Información Adicional */}
+            {(client.notes || client.emergency_contact || client.medical_conditions) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center space-x-2">
@@ -410,16 +478,16 @@ const ClientDetail: React.FC = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {client.emergencyContact && (
+                  {client.emergency_contact && (
                     <div>
                       <p className="text-sm font-medium text-gray-600 mb-1">Contacto de Emergencia</p>
-                      <p className="text-sm">{client.emergencyContact}</p>
+                      <p className="text-sm">{client.emergency_contact}</p>
                     </div>
                   )}
-                  {client.medicalConditions && (
+                  {client.medical_conditions && (
                     <div>
                       <p className="text-sm font-medium text-gray-600 mb-1">Condiciones Médicas</p>
-                      <p className="text-sm">{client.medicalConditions}</p>
+                      <p className="text-sm">{client.medical_conditions}</p>
                     </div>
                   )}
                   {client.notes && (
@@ -432,22 +500,35 @@ const ClientDetail: React.FC = () => {
               </Card>
             )}
           </div>
+
           <div className="lg:col-span-2 space-y-6">
+            {/* Navegación de días */}
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Mis Rutinas de la Semana</h3>
-                  <div className="flex items-center space-x-2">
-                    <Button variant="outline" size="sm" onClick={navigateToPreviousDay}>
-                      <ChevronLeft className="w-4 h-4" />
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={navigateToNextDay}>
-                      <ChevronRight className="w-4 h-4" />
-                    </Button>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Calendar className="w-5 h-5" />
+                  <span>Navegación de Días</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Button variant="outline" size="sm" onClick={navigateToPreviousDay}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <div className="text-center">
+                    <h3 className="text-lg font-semibold">
+                      {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
+                    </h3>
+                    <p className="text-sm text-gray-600">
+                      {currentRoutine ? `${currentRoutine.name} programada` : 'Sin rutina programada'}
+                    </p>
                   </div>
+                  <Button variant="outline" size="sm" onClick={navigateToNextDay}>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
                 </div>
                 <div className="grid grid-cols-7 gap-2">
-                  {daysOfWeek.map((day) => {
+                  {DAYS_OF_WEEK.map((day) => {
                     const hasRoutine = getRoutineForDay(day.key)
                     const isCurrentDay = currentDay === day.key
                     return (
@@ -479,7 +560,7 @@ const ClientDetail: React.FC = () => {
                 <CardTitle className="flex items-center space-x-2">
                   <Calendar className="w-5 h-5" />
                   <span>
-                    Mi Rutina para {daysOfWeek.find(d => d.key === currentDay)?.label}
+                    Mi Rutina para {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -496,7 +577,7 @@ const ClientDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center space-x-1">
                           <Target className="w-4 h-4" />
-                          <span>{currentRoutine.daysPerWeek} días/semana</span>
+                          <span>{currentRoutine.days_per_week} días/semana</span>
                         </div>
                       </div>
                     </div>
@@ -512,7 +593,7 @@ const ClientDetail: React.FC = () => {
                               </div>
                               <div className="flex items-center space-x-2">
                                 <Badge variant="outline" className="text-xs">
-                                  {workout.estimatedDuration} min
+                                  {workout.estimated_duration} min
                                 </Badge>
                                 <Badge 
                                   variant="outline" 
@@ -528,8 +609,8 @@ const ClientDetail: React.FC = () => {
                               </div>
                             </div>
                             <div className="space-y-3">
-                              {workout.exercises.map((exerciseSet) => {
-                                const exercise = mockExercises.find(e => e.id === exerciseSet.exerciseId)
+                              {workout.sets.map((exerciseSet) => {
+                                const exercise = exerciseSet.exercise
                                 return (
                                   <div key={exerciseSet.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                     <div className="flex-1">
@@ -548,7 +629,7 @@ const ClientDetail: React.FC = () => {
                                         </div>
                                       )}
                                       <div className="text-center">
-                                        <p className="font-medium">{exerciseSet.restTime}s</p>
+                                        <p className="font-medium">{exerciseSet.rest_time}s</p>
                                         <p className="text-gray-500">Descanso</p>
                                       </div>
                                     </div>
@@ -576,7 +657,7 @@ const ClientDetail: React.FC = () => {
                     <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                     <h4 className="text-lg font-medium text-gray-900 mb-2">Sin rutina programada</h4>
                     <p className="text-gray-600 mb-4">
-                      No hay rutina asignada para {daysOfWeek.find(d => d.key === currentDay)?.label}
+                      No hay rutina asignada para {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
                     </p>
                     <Button variant="outline">
                       <Target className="w-4 h-4 mr-2" />
@@ -589,9 +670,23 @@ const ClientDetail: React.FC = () => {
             {assignedRoutines.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <Target className="w-5 h-5" />
-                    <span>Mis Rutinas Asignadas</span>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Target className="w-5 h-5" />
+                      <span>Mis Rutinas Asignadas</span>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const newParams = new URLSearchParams(searchParams)
+                        newParams.set('modal', 'edit-routines')
+                        setSearchParams(newParams)
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Editar Rutinas
+                    </Button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -602,7 +697,7 @@ const ClientDetail: React.FC = () => {
                           <h6 className="font-medium">{routine?.name}</h6>
                           <p className="text-sm text-gray-600">{routine?.description}</p>
                           <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                            <span>{routine?.daysPerWeek} días/semana</span>
+                            <span>{routine?.days_per_week} días/semana</span>
                             <span>•</span>
                             <span>{routine?.duration} semanas</span>
                             <span>•</span>
@@ -610,9 +705,9 @@ const ClientDetail: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          {routine?.scheduledDays?.map(day => (
+                          {routine?.scheduled_days?.map((day: string) => (
                             <Badge key={day} variant="outline" className="text-xs">
-                              {daysOfWeek.find(d => d.key === day)?.short}
+                              {DAYS_OF_WEEK.find(d => d.key === day)?.short}
                             </Badge>
                           ))}
                         </div>
@@ -625,6 +720,31 @@ const ClientDetail: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Edit Client Modal */}
+      {isEditModalOpen && (
+        <ClientCreator
+          isOpen={isEditModalOpen}
+          onClose={handleCloseEditModal}
+          onSave={handleSaveClient}
+          clientToEdit={client}
+          clientId={clientId}
+        />
+      )}
+
+      {/* Edit Routines Modal */}
+      {isEditRoutinesModalOpen && clientId && (
+        <RoutineEditor
+          isOpen={isEditRoutinesModalOpen}
+          onClose={handleCloseEditModal}
+          clientId={clientId}
+          assignedRoutines={assignedRoutines}
+          onRoutinesUpdated={() => {
+            // Recargar las rutinas del cliente
+            loadRoutines(parseInt(clientId.toString()))
+          }}
+        />
+      )}
     </div>
   )
 }
