@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { handleApiError } from '../lib/api'
 
 interface UseApiState<T> {
@@ -61,29 +61,36 @@ export function useApi<T = any>(
 }
 
 // Hook específico para listas paginadas
+interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
 interface UsePaginatedApiState<T> {
-  data: T[]
+  data: PaginatedResponse<T>
   loading: boolean
   error: string | null
 }
 
 interface UsePaginatedApiReturn<T> extends UsePaginatedApiState<T> {
-  execute: (params?: { search?: string; ordering?: string }) => Promise<T[] | null>
+  execute: (params?: { search?: string; ordering?: string; filter?: string }) => Promise<PaginatedResponse<T> | null>
   refresh: () => Promise<void>
   reset: () => void
 }
 
 export function usePaginatedApi<T = any>(
-  apiFunction: (params?: any) => Promise<T[]>
+  apiFunction: (params?: any) => Promise<PaginatedResponse<T>>
 ): UsePaginatedApiReturn<T> {
   const [state, setState] = useState<UsePaginatedApiState<T>>({
-    data: [],
+    data: { count: 0, next: null, previous: null, results: [] },
     loading: false,
     error: null,
   })
 
   const execute = useCallback(
-    async (params?: { search?: string; ordering?: string }) => {
+    async (params?: { search?: string; ordering?: string; filter?: string }) => {
       setState(prev => ({ ...prev, loading: true, error: null }))
       
       try {
@@ -104,13 +111,13 @@ export function usePaginatedApi<T = any>(
   )
 
   const refresh = useCallback(async () => {
-    setState(prev => ({ ...prev, data: [] }))
+    setState(prev => ({ ...prev, data: { count: 0, next: null, previous: null, results: [] } }))
     await execute()
   }, [execute])
 
   const reset = useCallback(() => {
     setState({
-      data: [],
+      data: { count: 0, next: null, previous: null, results: [] },
       loading: false,
       error: null,
     })
@@ -244,4 +251,34 @@ export function useCrudApi<T = any>(
     remove,
     reset,
   }
+}
+
+// Hook para debounce
+/**
+ * Hook personalizado para implementar debounce en valores
+ * @param value - El valor que se quiere debouncar
+ * @param delay - El delay en milisegundos antes de actualizar el valor
+ * @returns El valor debouncado
+ * 
+ * @example
+ * const [searchTerm, setSearchTerm] = useState('')
+ * const debouncedSearchTerm = useDebounce(searchTerm, 500)
+ * 
+ * // El valor debouncedSearchTerm se actualizará 500ms después
+ * // de que el usuario deje de escribir en searchTerm
+ */
+export function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
 } 

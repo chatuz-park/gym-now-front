@@ -1,6 +1,6 @@
 import React from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Users, Calendar, BarChart3, Settings, LogOut, User } from 'lucide-react'
+import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './ui/button'
@@ -15,6 +15,7 @@ const Layout: React.FC = () => {
     { id: '/', label: 'Inicio', icon: Home, path: '/' },
     { id: '/clients', label: 'Clientes', icon: Users, path: '/clients' },
     { id: '/routines', label: 'Rutinas', icon: Calendar, path: '/routines' },
+    { id: '/exercises', label: 'Ejercicios', icon: Dumbbell, path: '/exercises' },
     { id: '/progress', label: 'Progreso', icon: BarChart3, path: '/progress' },
     { id: '/settings', label: 'Ajustes', icon: Settings, path: '/settings' },
   ]

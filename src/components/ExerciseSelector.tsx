@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { Search, Plus, X, Dumbbell, Clock, Target } from 'lucide-react'
+import { Search, Plus, X, Dumbbell, Target, Loader2, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
-import { mockExercises } from '../data/mockData'
+import { useApi, useDebounce } from '../hooks/useApi'
+import { exercisesAPI } from '../lib/api'
+import type { Exercise } from '../lib/api'
 import { 
   EXERCISE_CATEGORIES, 
   getDifficultyColor, 
@@ -16,7 +18,7 @@ import {
 
 interface ExerciseSet {
   exerciseId: string
-  exercise: typeof mockExercises[0]
+  exercise: Exercise
   sets: number
   reps: number
   weight: number
@@ -26,24 +28,121 @@ interface ExerciseSet {
 interface ExerciseSelectorProps {
   isOpen: boolean
   onClose: () => void
-  onSave: (selectedExercises: ExerciseSet[]) => void
+  onSave: (selectedExercises: ExerciseSet[], routineName: string, routineDescription: string) => void
+  initialExercises?: ExerciseSet[]
+  routineName?: string
+  routineDescription?: string
 }
+
+// Fallback exercises in case API fails
+const fallbackExercises: Exercise[] = [
+  {
+    id: 1,
+    name: 'Sentadillas',
+    description: 'Ejercicio compuesto para piernas y glúteos',
+    muscle_groups: ['Cuádriceps', 'Glúteos', 'Isquiotibiales'],
+    equipment: ['Peso corporal', 'Barra', 'Mancuernas'],
+    difficulty: 'beginner',
+    instructions: ['Ponte de pie con los pies separados al ancho de los hombros']
+  },
+  {
+    id: 2,
+    name: 'Press de Banca',
+    description: 'Ejercicio para pecho, hombros y tríceps',
+    muscle_groups: ['Pectorales', 'Deltoides', 'Tríceps'],
+    equipment: ['Barra', 'Banco'],
+    difficulty: 'intermediate',
+    instructions: ['Acuéstate en el banco con los pies en el suelo']
+  },
+  {
+    id: 3,
+    name: 'Flexiones',
+    description: 'Ejercicio de peso corporal para pecho y brazos',
+    muscle_groups: ['Pectorales', 'Tríceps', 'Deltoides'],
+    equipment: ['Peso corporal'],
+    difficulty: 'beginner',
+    instructions: ['Colócate en posición de plancha']
+  }
+]
 
 const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   isOpen,
   onClose,
-  onSave
+  onSave,
+  initialExercises = [],
+  routineName: initialRoutineName = '',
+  routineDescription: initialRoutineDescription = ''
 }) => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [selectedExercises, setSelectedExercises] = useState<ExerciseSet[]>([])
-  const [routineName, setRoutineName] = useState('')
-  const [routineDescription, setRoutineDescription] = useState('')
+  const [selectedExercises, setSelectedExercises] = useState<ExerciseSet[]>(initialExercises)
+  const [routineName, setRoutineName] = useState(initialRoutineName)
+  const [routineDescription, setRoutineDescription] = useState(initialRoutineDescription)
+  const [searchInputValue, setSearchInputValue] = useState('')
 
   // Get state from URL params
   const searchTerm = searchParams.get('search') || ''
   const selectedCategory = searchParams.get('category') || 'all'
 
-  // Usar las constantes importadas de definitions.ts
+  // Debounce the search input value
+  const debouncedSearchValue = useDebounce(searchInputValue, 500)
+
+  // Hook para cargar ejercicios desde la API
+  const {
+    data: exercises,
+    loading: exercisesLoading,
+    error: exercisesError,
+    execute: loadExercises
+  } = useApi(exercisesAPI.getAll)
+
+  // Initialize search input value from URL params
+  useEffect(() => {
+    setSearchInputValue(searchTerm)
+  }, [searchTerm])
+
+  // Update URL params when debounced search value changes
+  useEffect(() => {
+    const newParams = new URLSearchParams(searchParams)
+    if (debouncedSearchValue) {
+      newParams.set('search', debouncedSearchValue)
+    } else {
+      newParams.delete('search')
+    }
+    setSearchParams(newParams)
+  }, [debouncedSearchValue, setSearchParams])
+
+  // Cargar ejercicios al montar el componente
+  useEffect(() => {
+    if (isOpen) {
+      loadExercises({ search: searchTerm }).catch(error => {
+        console.error('Error loading exercises:', error)
+      })
+    }
+  }, [isOpen, loadExercises])
+
+  // Cargar ejercicios cuando cambie el término de búsqueda
+  useEffect(() => {
+    if (isOpen) {
+      loadExercises({ search: searchTerm }).catch(error => {
+        console.error('Error loading exercises:', error)
+      })
+    }
+  }, [searchTerm, isOpen, loadExercises])
+
+  // Update form when initial data changes (for edit mode)
+  useEffect(() => {
+    if (isOpen) {
+      // Ensure initialExercises is an array and has valid data
+      const validInitialExercises = Array.isArray(initialExercises) 
+        ? initialExercises.filter(ex => ex && ex.exerciseId && ex.exercise)
+        : []
+      
+      setSelectedExercises(validInitialExercises)
+      setRoutineName(initialRoutineName || '')
+      setRoutineDescription(initialRoutineDescription || '')
+    }
+  }, [isOpen, initialExercises, initialRoutineName, initialRoutineDescription])
+
+
 
   // Update URL params when state changes
   const updateSearchParams = (updates: Record<string, string>) => {
@@ -59,7 +158,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   }
 
   const handleSearchChange = (value: string) => {
-    updateSearchParams({ search: value })
+    setSearchInputValue(value)
   }
 
   const handleCategoryChange = (category: string) => {
@@ -76,23 +175,26 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
     onClose()
   }
 
-  const filteredExercises = mockExercises.filter(exercise => {
+  const filteredExercises = (Array.isArray(exercises) ? exercises : fallbackExercises).filter(exercise => {
     const matchesSearch = exercise.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          exercise.description.toLowerCase().includes(searchTerm.toLowerCase())
     const matchesCategory = selectedCategory === 'all' || 
-                           exercise.muscleGroups.some(group => 
+                           exercise.muscle_groups.some((group: string) => 
                              group.toLowerCase().includes(selectedCategory)
                            )
     return matchesSearch && matchesCategory
   })
 
-  // Usar las funciones importadas de definitions.ts
-
-  const addExercise = (exercise: typeof mockExercises[0]) => {
-    const isAlreadySelected = selectedExercises.some(se => se.exerciseId === exercise.id)
+  const addExercise = (exercise: Exercise) => {
+    if (!exercise || !exercise.id) {
+      console.warn('Attempted to add invalid exercise:', exercise)
+      return
+    }
+    
+    const isAlreadySelected = selectedExercises.some(se => se.exerciseId === exercise.id.toString())
     if (!isAlreadySelected) {
       const newExerciseSet: ExerciseSet = {
-        exerciseId: exercise.id,
+        exerciseId: exercise.id.toString(),
         exercise,
         sets: DEFAULT_EXERCISE_SET.sets,
         reps: DEFAULT_EXERCISE_SET.reps,
@@ -117,7 +219,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
 
   const handleSave = () => {
     if (routineName.trim() && selectedExercises.length > 0) {
-      onSave(selectedExercises)
+      onSave(selectedExercises, routineName, routineDescription)
       handleClose()
       // Reset form
       setSelectedExercises([])
@@ -134,8 +236,12 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Crear Nueva Rutina</h2>
-            <p className="text-gray-600">Selecciona ejercicios y configura los parámetros</p>
+            <h2 className="text-xl font-bold text-gray-900">
+              {initialExercises.length > 0 ? 'Editar Rutina' : 'Crear Nueva Rutina'}
+            </h2>
+            <p className="text-gray-600">
+              {initialExercises.length > 0 ? 'Modifica los ejercicios y configura los parámetros' : 'Selecciona ejercicios y configura los parámetros'}
+            </p>
           </div>
           <Button variant="ghost" size="sm" onClick={handleClose}>
             <X className="w-5 h-5" />
@@ -152,7 +258,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <Input
                     placeholder="Buscar ejercicios..."
-                    value={searchTerm}
+                    value={searchInputValue}
                     onChange={(e) => handleSearchChange(e.target.value)}
                     className="pl-10"
                   />
@@ -173,64 +279,83 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
               </div>
 
               {/* Exercise Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredExercises.map((exercise) => {
-                  const isSelected = selectedExercises.some(se => se.exerciseId === exercise.id)
-                  return (
-                    <Card 
-                      key={exercise.id} 
-                      className={`cursor-pointer transition-all hover:shadow-md ${
-                        isSelected ? 'ring-2 ring-primary-500 bg-primary-50' : ''
-                      }`}
-                      onClick={() => addExercise(exercise)}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex space-x-4">
-                          {/* Exercise Image Placeholder */}
-                          <div className="flex-shrink-0">
-                                                          <div className={`w-16 h-16 bg-gradient-to-br ${getExerciseColor(exercise.name)} rounded-lg flex items-center justify-center border`}>
-                              <span className="text-2xl">{getExerciseIcon(exercise.name)}</span>
-                            </div>
-                          </div>
-                          
-                          {/* Exercise Content */}
-                          <div className="flex-1 space-y-3">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-gray-900">{exercise.name}</h3>
-                                <p className="text-sm text-gray-600 mt-1">{exercise.description}</p>
+              {exercisesError ? (
+                <div className="text-center py-8">
+                  <p className="text-yellow-600 mb-2">⚠️ No se pudo conectar con el servidor</p>
+                  <p className="text-gray-600 mb-4">Mostrando ejercicios básicos disponibles offline</p>
+                  <Button onClick={() => loadExercises({ search: searchTerm })} variant="outline">
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Reintentar Conexión
+                  </Button>
+                </div>
+              ) : exercisesLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+                </div>
+              ) : filteredExercises.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No se encontraron ejercicios</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredExercises.map((exercise) => {
+                    const isSelected = selectedExercises.some(se => se.exerciseId === exercise.id.toString())
+                    return (
+                      <Card 
+                        key={exercise.id} 
+                        className={`cursor-pointer transition-all hover:shadow-md ${
+                          isSelected ? 'ring-2 ring-primary-500 bg-primary-50' : ''
+                        }`}
+                        onClick={() => addExercise(exercise)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex space-x-4">
+                            {/* Exercise Image Placeholder */}
+                            <div className="flex-shrink-0">
+                              <div className={`w-16 h-16 bg-gradient-to-br ${getExerciseColor(exercise.name)} rounded-lg flex items-center justify-center border`}>
+                                <span className="text-2xl">{getExerciseIcon(exercise.name)}</span>
                               </div>
-                              {isSelected && (
-                                <Badge variant="default" className="bg-primary-600">
-                                  Seleccionado
-                                </Badge>
-                              )}
                             </div>
                             
-                            <div className="flex flex-wrap gap-1">
-                              {exercise.muscleGroups.map((group, index) => (
-                                <Badge key={index} variant="outline" className="text-xs">
-                                  {group}
-                                </Badge>
-                              ))}
-                            </div>
-                            
-                            <div className="flex items-center justify-between text-sm text-gray-600">
-                              <div className="flex items-center space-x-1">
-                                <Dumbbell className="w-4 h-4" />
-                                <span>{exercise.equipment.join(', ')}</span>
+                            {/* Exercise Content */}
+                            <div className="flex-1 space-y-3">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <h3 className="font-semibold text-gray-900">{exercise.name}</h3>
+                                  <p className="text-sm text-gray-600 mt-1">{exercise.description}</p>
+                                </div>
+                                {isSelected && (
+                                  <Badge variant="default" className="bg-primary-600">
+                                    Seleccionado
+                                  </Badge>
+                                )}
                               </div>
-                              <Badge variant={getDifficultyColor(exercise.difficulty) as any}>
-                                {exercise.difficulty}
-                              </Badge>
+                              
+                              <div className="flex flex-wrap gap-1">
+                                {exercise.muscle_groups.map((group: string, index: number) => (
+                                  <Badge key={index} variant="outline" className="text-xs">
+                                    {group}
+                                  </Badge>
+                                ))}
+                              </div>
+                              
+                              <div className="flex items-center justify-between text-sm text-gray-600">
+                                <div className="flex items-center space-x-1">
+                                  <Dumbbell className="w-4 h-4" />
+                                  <span>{Array.isArray(exercise.equipment) ? exercise.equipment.join(', ') : exercise.equipment}</span>
+                                </div>
+                                <Badge variant={getDifficultyColor(exercise.difficulty) as any}>
+                                  {exercise.difficulty}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
-              </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -288,7 +413,10 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                                 {exerciseSet.exercise.name}
                               </h5>
                               <p className="text-xs text-gray-600">
-                                {exerciseSet.exercise.muscleGroups.join(', ')}
+                                {Array.isArray(exerciseSet.exercise.muscle_groups) 
+                                  ? exerciseSet.exercise.muscle_groups.join(', ')
+                                  : exerciseSet.exercise.muscle_groups
+                                }
                               </p>
                             </div>
                             <Button
@@ -374,7 +502,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                   className="flex-1 bg-primary-600 hover:bg-primary-700"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Crear Rutina
+                  {initialExercises.length > 0 ? 'Actualizar Rutina' : 'Crear Rutina'}
                 </Button>
               </div>
             </div>

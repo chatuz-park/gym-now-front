@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import ClientCreator from '../components/ClientCreator'
 import RoutineEditor from '../components/RoutineEditor'
 import { mockRoutines, mockExercises } from '../data/mockData'
-import { formatDate } from '../lib/utils'
+import { formatDate, calculateAge } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { DAYS_OF_WEEK, getCurrentDayOfWeek, getSubscriptionStatus } from '../definitions'
 import { useApi, usePaginatedApi } from '../hooks/useApi'
@@ -258,12 +258,14 @@ const ClientDetail: React.FC = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  {client.age > 0 && (
+                  {client.birth_date && (
                     <div className="flex items-center space-x-2">
                       <User className="w-4 h-4 text-gray-400" />
                       <div>
                         <p className="text-sm font-medium">Edad</p>
-                        <p className="text-lg font-semibold">{client.age} años</p>
+                        <p className="text-lg font-semibold">
+                          {calculateAge(client.birth_date)} años
+                        </p>
                       </div>
                     </div>
                   )}

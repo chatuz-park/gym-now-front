@@ -9,8 +9,8 @@ import { Badge } from '../components/ui/badge'
 import ClientCreator from '../components/ClientCreator'
 import RoutineEditor from '../components/RoutineEditor'
 
-import { formatDate } from '../lib/utils'
-import { usePaginatedApi, useApi } from '../hooks/useApi'
+import { formatDate, calculateAge } from '../lib/utils'
+import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
 import { clientsAPI, routinesAPI, clientRoutinesAPI } from '../lib/api'
 import type { Client, Routine } from '../lib/api'
 import { 
@@ -33,6 +33,7 @@ const Clients: React.FC = () => {
   const [selectedDaysForClient, setSelectedDaysForClient] = useState<string[]>([])
   const [renewalDate, setRenewalDate] = useState('')
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
+  const [searchInputValue, setSearchInputValue] = useState('')
 
   // Hook para cargar clientes desde la API
   const {
@@ -63,12 +64,6 @@ const Clients: React.FC = () => {
     loading: deletingClient
   } = useApi(clientsAPI.delete)
 
-  // Cargar clientes y rutinas al montar el componente
-  useEffect(() => {
-    loadClients()
-    loadRoutines()
-  }, [loadClients, loadRoutines])
-
   // Usar las constantes importadas de definitions.ts
 
   // Get modal state from URL params
@@ -79,11 +74,41 @@ const Clients: React.FC = () => {
   const searchTerm = searchParams.get('search') || ''
   const activeFilter = searchParams.get('filter') || 'all'
 
+  // Debounce the search input value
+  const debouncedSearchValue = useDebounce(searchInputValue, 500)
+
+  // Initialize search input value from URL params
+  useEffect(() => {
+    setSearchInputValue(searchTerm)
+  }, [searchTerm])
+
+  // Update URL params when debounced search value changes
+  useEffect(() => {
+    const newParams = new URLSearchParams(searchParams)
+    if (debouncedSearchValue) {
+      newParams.set('search', debouncedSearchValue)
+    } else {
+      newParams.delete('search')
+    }
+    setSearchParams(newParams)
+  }, [debouncedSearchValue, setSearchParams])
+
+  // Cargar clientes y rutinas al montar el componente
+  useEffect(() => {
+    loadClients({ search: searchTerm, filter: activeFilter })
+    loadRoutines()
+  }, [loadClients, loadRoutines])
+
+  // Cargar clientes cuando cambie el término de búsqueda o el filtro
+  useEffect(() => {
+    loadClients({ search: searchTerm, filter: activeFilter })
+  }, [searchTerm, activeFilter, loadClients])
+
   // Cargar rutinas asignadas del cliente cuando se abre el modal
   useEffect(() => {
     if (isAssignRoutineModalOpen && searchParams.get('id')) {
       const clientId = searchParams.get('id')
-      const client = clients.find(c => c.id.toString() === clientId)
+      const client = clients.results.find(c => c.id.toString() === clientId)
       
       if (client && client.assigned_routines && client.assigned_routines.length > 0) {
         // Obtener los IDs de las rutinas asignadas
@@ -107,42 +132,9 @@ const Clients: React.FC = () => {
     }
   }, [isAssignRoutineModalOpen, searchParams, clients])
 
-  // Filter clients based on search term and active filter
+  // Get filtered clients (filtering is now handled by API)
   const getFilteredClients = () => {
-    let filtered = clients
-
-    // Apply filter
-    switch (activeFilter) {
-      case 'active':
-        filtered = clients.filter(c => {
-          if (!c.subscription_type || !c.subscription_start || !c.subscription_end) return false
-          
-          const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
-          return status.status === 'active' || status.status === 'halfway' || status.status === 'warning' || status.status === 'pending'
-        })
-        break
-      case 'premium':
-        filtered = clients.filter(c => c.subscription_type === 'premium')
-        break
-      case 'with-routines':
-        filtered = clients.filter(c => c.assigned_routines?.length > 0)
-        break
-      case 'expiring':
-        filtered = getExpiringClients()
-        break
-      default:
-        filtered = clients
-    }
-
-    // Apply search term
-    if (searchTerm) {
-      filtered = filtered.filter(client =>
-        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.email.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-
-    return filtered
+    return clients.results
   }
 
   // Helper functions for subscription expiration
@@ -211,7 +203,7 @@ const Clients: React.FC = () => {
   }
 
   const getExpiringClients = () => {
-    return clients.filter(client => {
+    return clients.results.filter(client => {
       if (!client.subscription_start || !client.subscription_end) return false
       
       const status = getSubscriptionStatus(client.subscription_start, client.subscription_end)
@@ -223,22 +215,25 @@ const Clients: React.FC = () => {
     })
   }
 
-  const expiringClients = getExpiringClients()
-
   const filteredClients = getFilteredClients()
 
-  // Filter options
+  // Filter options - counts are based on total counts from API
   const filterOptions = [
-    { id: 'all', label: 'Todos', count: clients.length, icon: Users },
-    { id: 'active', label: 'Activos', count: clients.filter(c => {
+    { id: 'all', label: 'Todos', count: clients.count, icon: Users },
+    { id: 'active', label: 'Activos', count: clients.results.filter(c => {
       if (!c.subscription_type || !c.subscription_start || !c.subscription_end) return false
       
       const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
       return status.status === 'active' || status.status === 'halfway' || status.status === 'warning' || status.status === 'pending'
     }).length, icon: Target },
-    { id: 'premium', label: 'Premium', count: clients.filter(c => c.subscription_type === 'premium').length, icon: CreditCard },
-    { id: 'with-routines', label: 'Con Rutinas', count: clients.filter(c => c.assigned_routines?.length > 0).length, icon: Clock },
-    { id: 'expiring', label: 'Por Vencer', count: expiringClients.length, icon: AlertTriangle }
+    { id: 'premium', label: 'Premium', count: clients.results.filter(c => c.subscription_type === 'premium').length, icon: CreditCard },
+    { id: 'with-routines', label: 'Con Rutinas', count: clients.results.filter(c => c.assigned_routines?.length > 0).length, icon: Clock },
+    { id: 'expiring', label: 'Por Vencer', count: clients.results.filter(c => {
+      if (!c.subscription_start || !c.subscription_end) return false
+      
+      const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
+      return status.status === 'critical' || status.status === 'warning' || status.status === 'expired'
+    }).length, icon: AlertTriangle }
   ]
 
   const handleFilterChange = (filterId: string) => {
@@ -252,7 +247,7 @@ const Clients: React.FC = () => {
   }
 
   const getClientGoals = (clientId: string) => {
-    const client = clients.find(c => c.id === clientId)
+    const client = clients.results.find(c => c.id.toString() === clientId)
     return client?.goals || []
   }
 
@@ -305,19 +300,8 @@ const Clients: React.FC = () => {
       return
     }
     // TODO: Implement subscription renewal logic
-    setClients(prevClients => 
-      prevClients.map(client => 
-        client.id === clientIdFromPath 
-          ? {
-              ...client,
-              subscription: {
-                ...(client as any).subscription,
-                endDate: renewalDate
-              }
-            }
-          : client
-      )
-    )
+    // Refresh clients to get updated data
+    refreshClients()
     handleCloseRenewalModal()
   }
 
@@ -454,18 +438,12 @@ const Clients: React.FC = () => {
   }
 
   const handleSearchChange = (value: string) => {
-    const newParams = new URLSearchParams(searchParams)
-    if (value) {
-      newParams.set('search', value)
-    } else {
-      newParams.delete('search')
-    }
-    setSearchParams(newParams)
+    setSearchInputValue(value)
   }
 
   const getPreviouslyAssignedDays = (routineId: string) => {
     const clientId = searchParams.get('id')
-    const client = clients.find(c => c.id.toString() === clientId)
+    const client = clients.results.find(c => c.id.toString() === clientId)
     
     if (client?.assigned_routines) {
       const assignedRoutine = client.assigned_routines.find(routine => {
@@ -498,7 +476,7 @@ const Clients: React.FC = () => {
   // Función para obtener todos los días asignados de todas las rutinas del cliente
   const getAllAssignedDays = () => {
     const clientId = searchParams.get('id')
-    const client = clients.find(c => c.id.toString() === clientId)
+    const client = clients.results.find(c => c.id.toString() === clientId)
     
     if (!client?.assigned_routines) return {}
     
@@ -551,7 +529,7 @@ const Clients: React.FC = () => {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
           <Input
             placeholder="Buscar clientes..."
-            value={searchTerm}
+            value={searchInputValue}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-10"
           />
@@ -596,7 +574,7 @@ const Clients: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Clientes</p>
-                <p className="text-2xl font-bold text-gray-900">{clients.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{clients.results.length}</p>
               </div>
               <div className="p-2 bg-blue-50 rounded-lg">
                 <Users className="w-5 h-5 text-blue-600" />
@@ -611,12 +589,11 @@ const Clients: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Activos</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {clients.filter(c => {
-                    const subscription = (c as any).subscription
-                    if (!subscription?.type || !subscription?.startDate || !subscription?.endDate) return false
+                  {clients.results.filter(c => {
+                    if (!c.subscription_type || !c.subscription_start || !c.subscription_end) return false
                     
-                    const status = getSubscriptionStatus(subscription.startDate, subscription.endDate)
-                    return status.status === 'active' || status.status === 'halfway' || status.status === 'warning'
+                    const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
+                    return status.status === 'active' || status.status === 'halfway' || status.status === 'warning' || status.status === 'pending'
                   }).length}
                 </p>
               </div>
@@ -633,7 +610,7 @@ const Clients: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Premium</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {clients.filter(c => (c as any).subscription?.type === 'premium').length}
+                  {clients.results.filter(c => c.subscription_type === 'premium').length}
                 </p>
               </div>
               <div className="p-2 bg-purple-50 rounded-lg">
@@ -649,7 +626,7 @@ const Clients: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Con Rutinas</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {clients.filter(c => (c as any).assignedRoutines?.length > 0).length}
+                  {clients.results.filter(c => c.assigned_routines?.length > 0).length}
                 </p>
               </div>
               <div className="p-2 bg-orange-50 rounded-lg">
@@ -665,7 +642,12 @@ const Clients: React.FC = () => {
               <div>
                 <p className="text-sm font-medium text-gray-600">Por Vencer</p>
                 <p className="text-2xl font-bold text-red-600">
-                  {expiringClients.length}
+                  {clients.results.filter(c => {
+                    if (!c.subscription_start || !c.subscription_end) return false
+                    
+                    const status = getSubscriptionStatus(c.subscription_start, c.subscription_end)
+                    return status.status === 'critical' || status.status === 'warning' || status.status === 'expired'
+                  }).length}
                 </p>
               </div>
               <div className="p-2 bg-red-50 rounded-lg">
@@ -677,7 +659,7 @@ const Clients: React.FC = () => {
       </div>
 
       {/* Expiring Subscriptions Accordion */}
-      {expiringClients.length > 0 && (
+      {activeFilter === 'expiring' && clients.results.length > 0 && (
         <Card className="border-red-200 bg-red-50">
           <button
             className="w-full flex items-center justify-between px-6 py-4 focus:outline-none select-none"
@@ -687,7 +669,7 @@ const Clients: React.FC = () => {
           >
             <span className="flex items-center space-x-2 text-red-800 font-semibold">
               <AlertTriangle className="w-5 h-5" />
-              <span>Suscripciones por Vencer ({expiringClients.length})</span>
+              <span>Suscripciones por Vencer ({clients.count})</span>
             </span>
             {expiringAccordionOpen ? (
               <ChevronDown className="w-5 h-5 text-red-800" />
@@ -698,7 +680,7 @@ const Clients: React.FC = () => {
           {expiringAccordionOpen && (
             <CardContent id="expiring-accordion-content">
               <div className="space-y-3">
-                {expiringClients.slice(0, 5).map((client) => {
+                {clients.results.slice(0, 5).map((client) => {
                   const status = getSubscriptionStatus(client.subscription_start!, client.subscription_end!)
                   return (
                     <div 
@@ -745,9 +727,9 @@ const Clients: React.FC = () => {
                     </div>
                   )
                 })}
-                {expiringClients.length > 5 && (
+                {clients.count > 5 && (
                   <p className="text-sm text-gray-600 text-center">
-                    Y {expiringClients.length - 5} más...
+                    Y {clients.count - 5} más...
                   </p>
                 )}
               </div>
@@ -765,8 +747,8 @@ const Clients: React.FC = () => {
                 <Users className="w-12 h-12 text-gray-400 mx-auto" />
                 <h3 className="text-lg font-medium text-gray-900">No se encontraron clientes</h3>
                 <p className="text-gray-600">
-                  {searchTerm 
-                    ? `No hay clientes que coincidan con "${searchTerm}" en el filtro seleccionado.`
+                  {searchInputValue 
+                    ? `No hay clientes que coincidan con "${searchInputValue}" en el filtro seleccionado.`
                     : 'No hay clientes en el filtro seleccionado.'
                   }
                 </p>
@@ -803,9 +785,9 @@ const Clients: React.FC = () => {
                           <p className="text-sm text-gray-600">{client.email}</p>
                         </div>
                         <div className="flex items-center space-x-2">
-                          {client.age > 0 && (
+                          {client.birth_date && (
                             <Badge variant="secondary" className="text-xs">
-                              {client.age} años
+                              {calculateAge(client.birth_date)} años
                             </Badge>
                           )}
                           {client.subscription_type && (
@@ -891,21 +873,30 @@ const Clients: React.FC = () => {
                       </div>
 
                       {/* Additional Info */}
-                      {((client as any).notes || (client as any).emergencyContact || (client as any).medicalConditions) && (
-                        <div className="pt-2 border-t border-gray-100">
-                          <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                            {(client as any).notes && (
-                              <span>📝 Notas disponibles</span>
-                            )}
-                            {(client as any).emergencyContact && (
-                              <span>🚨 Contacto de emergencia</span>
-                            )}
-                            {(client as any).medicalConditions && (
-                              <span>🏥 Condiciones médicas</span>
-                            )}
-                          </div>
+                      <div className="pt-2 border-t border-gray-100">
+                        <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                          {!client.notes && (
+                            <span>📝 Notas disponibles</span>
+                          )}
+                          {client.notes && (
+                            <span>📝 {client.notes}</span>
+                          )}
+                          {!client.emergency_contact && (
+                            <span>🚨 Contacto de emergencia</span>
+                          )}
+                          {client.emergency_contact && (
+                            <span>🚨 {client.emergency_contact} </span>
+                          )}
+                          {!client.medical_conditions && (
+                            <span>🏥 Condiciones médicas</span>
+                          )}
+                          {client.medical_conditions && (
+                            <span>🏥 {client.medical_conditions}</span>
+                          )}
                         </div>
-                      )}
+                      </div>
+                      
+
 
                       {/* Action Buttons */}
                       <div className="flex space-x-2 pt-2">

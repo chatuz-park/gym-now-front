@@ -37,4 +37,17 @@ export function formatTime(date: Date | string): string {
 export function calculateProgress(current: number, target: number): number {
   if (target === 0) return 0
   return Math.min((current / target) * 100, 100)
+}
+
+export function calculateAge(birthDate: string | Date): number {
+  const birthDateObj = typeof birthDate === 'string' ? new Date(birthDate) : birthDate
+  
+  // Verificar si la fecha es válida
+  if (isNaN(birthDateObj.getTime())) {
+    return 0
+  }
+  
+  const today = new Date()
+  const age = Math.floor((today.getTime() - birthDateObj.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+  return age
 } 

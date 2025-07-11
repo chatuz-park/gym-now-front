@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { Plus, Clock, Users, Target, Play } from 'lucide-react'
+import { Plus, Clock, Users, Target, Play, Search, RefreshCw, Edit, Trash2, Loader2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
+import { Input } from '../components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import ExerciseSelector from '../components/ExerciseSelector'
-import { mockRoutines, mockWorkouts } from '../data/mockData'
+import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
+import { routinesAPI } from '../lib/api'
+import type { Routine } from '../lib/api'
+import toast, { Toaster } from 'react-hot-toast'
 
 interface ExerciseSet {
   exerciseId: string
@@ -19,20 +23,74 @@ interface ExerciseSet {
 
 const Routines: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [selectedRoutine, setSelectedRoutine] = useState<string | null>(null)
-  const [routines, setRoutines] = useState(mockRoutines)
+  const [routineToDelete, setRoutineToDelete] = useState<Routine | null>(null)
+  const [routineToEdit, setRoutineToEdit] = useState<Routine | null>(null)
+  const [searchInputValue, setSearchInputValue] = useState('')
 
   // Get modal state from URL params
   const isExerciseSelectorOpen = searchParams.get('modal') === 'create-routine'
+  const isEditModalOpen = searchParams.get('modal') === 'edit-routine'
+  const isDeleteModalOpen = searchParams.get('modal') === 'delete-routine'
+  const searchTerm = searchParams.get('search') || ''
+  const activeFilter = searchParams.get('filter') || 'all'
 
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case 'beginner': return 'success'
-      case 'intermediate': return 'warning'
-      case 'advanced': return 'destructive'
-      default: return 'secondary'
+  // Debounce the search input value
+  const debouncedSearchValue = useDebounce(searchInputValue, 500)
+
+  // Hook para cargar rutinas desde la API
+  const {
+    data: routines,
+    loading: routinesLoading,
+    error: routinesError,
+    execute: loadRoutines,
+    refresh: refreshRoutines
+  } = usePaginatedApi(routinesAPI.getAll)
+
+  // Hook para crear rutinas
+  const {
+    execute: createRoutine,
+    loading: creatingRoutine
+  } = useApi(routinesAPI.create)
+
+  // Hook para actualizar rutinas
+  const {
+    execute: updateRoutine,
+    loading: updatingRoutine
+  } = useApi(routinesAPI.update)
+
+  // Hook para eliminar rutinas
+  const {
+    execute: deleteRoutine,
+    loading: deletingRoutine
+  } = useApi(routinesAPI.delete)
+
+  // Initialize search input value from URL params
+  useEffect(() => {
+    setSearchInputValue(searchTerm)
+  }, [searchTerm])
+
+  // Update URL params when debounced search value changes
+  useEffect(() => {
+    const newParams = new URLSearchParams(searchParams)
+    if (debouncedSearchValue) {
+      newParams.set('search', debouncedSearchValue)
+    } else {
+      newParams.delete('search')
     }
-  }
+    setSearchParams(newParams)
+  }, [debouncedSearchValue, setSearchParams])
+
+  // Cargar rutinas al montar el componente
+  useEffect(() => {
+    loadRoutines({ search: searchTerm, filter: activeFilter })
+  }, [loadRoutines])
+
+  // Cargar rutinas cuando cambie el término de búsqueda o el filtro
+  useEffect(() => {
+    loadRoutines({ search: searchTerm, filter: activeFilter })
+  }, [searchTerm, activeFilter, loadRoutines])
+
+
 
   const getCategoryColor = (category: string) => {
     switch (category) {
@@ -56,41 +114,189 @@ const Routines: React.FC = () => {
     setSearchParams(newParams)
   }
 
-  const handleCreateRoutine = (selectedExercises: ExerciseSet[]) => {
-    // Convert selected exercises to workout format
-    const exercises = selectedExercises.map((exerciseSet, index) => ({
-      id: `${Date.now()}-${index}`,
-      exerciseId: exerciseSet.exerciseId,
-      reps: exerciseSet.reps,
-      weight: exerciseSet.weight,
-      restTime: exerciseSet.restTime,
-      completed: false
-    }))
+  const openEditModal = (routine: Routine) => {
+    if (!routine || !routine.id) {
+      toast.error('Error: No se pudo cargar la rutina para editar')
+      return
+    }
+    setRoutineToEdit(routine)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('modal', 'edit-routine')
+    setSearchParams(newParams)
+  }
 
-    // Create new workout
-    const newWorkout = {
-      id: `workout-${Date.now()}`,
-      name: `Nuevo Entrenamiento`,
-      description: 'Entrenamiento personalizado',
-      exercises,
-      estimatedDuration: Math.ceil(selectedExercises.length * 5), // 5 min per exercise
-      difficulty: 'intermediate' as const,
-      category: 'mixed' as const
+  const closeEditModal = () => {
+    setRoutineToEdit(null)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('modal')
+    setSearchParams(newParams)
+  }
+
+  const handleCreateRoutine = async (selectedExercises: ExerciseSet[], routineName: string, routineDescription: string) => {
+    try {
+      // Convert selected exercises to workout format
+      const exercises = selectedExercises.map((exerciseSet) => ({
+        exercise: parseInt(exerciseSet.exerciseId),
+        reps: exerciseSet.reps,
+        weight: exerciseSet.weight,
+        rest_time: exerciseSet.restTime,
+        completed: false
+      }))
+
+      // Create new workout
+      const newWorkout = {
+        name: `Nuevo Entrenamiento`,
+        description: 'Entrenamiento personalizado',
+        sets: exercises,
+        estimated_duration: Math.ceil(selectedExercises.length * 5), // 5 min per exercise
+        difficulty: 'intermediate' as const,
+        category: 'mixed' as const
+      }
+
+      // Create new routine
+      const newRoutine = {
+        name: routineName,
+        description: routineDescription,
+        workouts: [newWorkout],
+        frequency: 'weekly' as const,
+        days_per_week: 3,
+        duration: 4
+      }
+
+      const result = await createRoutine(newRoutine)
+      if (result) {
+        toast.success('Rutina creada exitosamente')
+        closeExerciseSelector()
+        refreshRoutines()
+      }
+    } catch (error) {
+      toast.error('Error al crear la rutina')
+    }
+  }
+
+  const handleUpdateRoutine = async (selectedExercises: ExerciseSet[], routineName: string, routineDescription: string) => {
+    if (!routineToEdit || !routineToEdit.id) {
+      toast.error('Error: No se pudo identificar la rutina a editar')
+      return
     }
 
-    // Create new routine
-    const newRoutine = {
-      id: `routine-${Date.now()}`,
-      name: `Nueva Rutina`,
-      description: 'Rutina personalizada',
-      workouts: [newWorkout],
-      frequency: 'weekly' as const,
-      daysPerWeek: 3,
-      duration: 4
-    }
+    try {
+      // Convert selected exercises to workout format
+      const exercises = selectedExercises.map((exerciseSet) => ({
+        exercise: parseInt(exerciseSet.exerciseId),
+        reps: exerciseSet.reps,
+        weight: exerciseSet.weight,
+        rest_time: exerciseSet.restTime,
+        completed: false
+      }))
 
-    setRoutines([...routines, newRoutine as any])
-    closeExerciseSelector()
+      // Create updated workout
+      const updatedWorkout = {
+        name: routineToEdit.workouts?.[0]?.name || 'Entrenamiento Actualizado',
+        description: routineToEdit.workouts?.[0]?.description || 'Entrenamiento personalizado',
+        sets: exercises,
+        estimated_duration: Math.ceil(selectedExercises.length * 5), // 5 min per exercise
+        difficulty: routineToEdit.workouts?.[0]?.difficulty || 'intermediate' as const,
+        category: routineToEdit.workouts?.[0]?.category || 'mixed' as const
+      }
+
+      // Update routine
+      const updatedRoutine = {
+        name: routineName,
+        description: routineDescription,
+        workouts: [updatedWorkout],
+        frequency: routineToEdit.frequency,
+        days_per_week: routineToEdit.days_per_week,
+        duration: routineToEdit.duration
+      }
+
+      const result = await updateRoutine(routineToEdit.id, updatedRoutine)
+      if (result) {
+        toast.success('Rutina actualizada exitosamente')
+        closeEditModal()
+        refreshRoutines()
+      }
+    } catch (error) {
+      toast.error('Error al actualizar la rutina')
+    }
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearchInputValue(value)
+  }
+
+  const handleFilterChange = (filterId: string) => {
+    const newParams = new URLSearchParams(searchParams)
+    if (filterId === 'all') {
+      newParams.delete('filter')
+    } else {
+      newParams.set('filter', filterId)
+    }
+    setSearchParams(newParams)
+  }
+
+  const handleDeleteRoutine = (routine: Routine) => {
+    setRoutineToDelete(routine)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('modal', 'delete-routine')
+    setSearchParams(newParams)
+  }
+
+  const handleCloseDeleteModal = () => {
+    setRoutineToDelete(null)
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('modal')
+    setSearchParams(newParams)
+  }
+
+  const handleConfirmDeleteRoutine = async () => {
+    if (!routineToDelete) return
+
+    try {
+      await deleteRoutine(routineToDelete.id)
+      toast.success('Rutina eliminada exitosamente')
+      handleCloseDeleteModal()
+      refreshRoutines()
+    } catch (error) {
+      toast.error('Error al eliminar la rutina')
+    }
+  }
+
+  const getFilteredRoutines = () => {
+    return routines.results
+  }
+
+  const filteredRoutines = getFilteredRoutines()
+
+  // Filter options - counts are based on total counts from API
+  const filterOptions = [
+    { id: 'all', label: 'Todas', count: routines.count },
+    { id: 'active', label: 'Activas', count: routines.results.filter(r => r.frequency === 'weekly').length },
+    { id: 'completed', label: 'Completadas', count: 0 }, // This would need backend support
+    { id: 'templates', label: 'Plantillas', count: routines.results.filter(r => r.frequency === 'daily').length }
+  ]
+
+  if (routinesError) {
+    return (
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-bold text-gray-900">Rutinas</h1>
+          <p className="text-gray-600">Gestiona las rutinas de entrenamiento</p>
+        </div>
+        
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center">
+              <p className="text-red-600 mb-4">Error al cargar las rutinas: {routinesError}</p>
+              <Button onClick={refreshRoutines} variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Reintentar
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -100,14 +306,48 @@ const Routines: React.FC = () => {
         <p className="text-gray-600">Gestiona las rutinas de entrenamiento</p>
       </div>
 
-      {/* Add Routine Button */}
-      <Button 
-        className="w-full bg-primary-600 hover:bg-primary-700"
-        onClick={openExerciseSelector}
-      >
-        <Plus className="w-4 h-4 mr-2" />
-        Crear Nueva Rutina
-      </Button>
+      {/* Search and Add Routine */}
+      <div className="flex gap-4">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <Input
+            placeholder="Buscar rutinas..."
+            value={searchInputValue}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Button 
+          className="bg-primary-600 hover:bg-primary-700"
+          onClick={openExerciseSelector}
+          disabled={creatingRoutine}
+        >
+          {creatingRoutine ? (
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+          ) : (
+            <Plus className="w-4 h-4 mr-2" />
+          )}
+          Crear Nueva Rutina
+        </Button>
+      </div>
+
+      {/* Filter Buttons */}
+      <div className="flex flex-wrap gap-2">
+        {filterOptions.map((option) => (
+          <Button
+            key={option.id}
+            variant={activeFilter === option.id ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => handleFilterChange(option.id)}
+            className="flex items-center gap-2"
+          >
+            {option.label}
+            <Badge variant="secondary" className="ml-1">
+              {option.count}
+            </Badge>
+          </Button>
+        ))}
+      </div>
 
       <Tabs defaultValue="all" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
@@ -118,59 +358,93 @@ const Routines: React.FC = () => {
         </TabsList>
 
         <TabsContent value="all" className="space-y-4 mt-4">
-          {routines.map((routine) => (
-            <Card 
-              key={routine.id}
-              className={`cursor-pointer transition-all hover:shadow-md ${
-                selectedRoutine === routine.id ? 'ring-2 ring-primary-500' : ''
-              }`}
-              onClick={() => setSelectedRoutine(selectedRoutine === routine.id ? null : routine.id)}
-            >
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{routine.name}</h3>
-                      <p className="text-sm text-gray-600 mt-1">{routine.description}</p>
+          {routinesLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+            </div>
+          ) : filteredRoutines.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>No se encontraron rutinas</p>
+            </div>
+          ) : (
+            filteredRoutines.map((routine) => (
+              <Card 
+                key={routine.id}
+                className="transition-all hover:shadow-md"
+              >
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-gray-900">{routine.name}</h3>
+                        <p className="text-sm text-gray-600 mt-1">{routine.description}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline">
+                          <Play className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEditModal(routine)
+                          }}
+                          disabled={updatingRoutine}
+                        >
+                          {updatingRoutine ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Edit className="w-4 h-4" />
+                          )}
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleDeleteRoutine(routine)
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
-                    <Button size="sm" variant="outline">
-                      <Play className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  
-                  <div className="flex items-center space-x-4 text-sm text-gray-600">
-                    <div className="flex items-center space-x-1">
-                      <Clock className="w-4 h-4" />
-                      <span>{routine.duration} semanas</span>
+                    
+                    <div className="flex items-center space-x-4 text-sm text-gray-600">
+                      <div className="flex items-center space-x-1">
+                        <Clock className="w-4 h-4" />
+                        <span>{routine.duration} semanas</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Users className="w-4 h-4" />
+                        <span>{routine.days_per_week} días/semana</span>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Target className="w-4 h-4" />
+                        <span>{routine.workouts.length} entrenamientos</span>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-1">
-                      <Users className="w-4 h-4" />
-                      <span>{routine.daysPerWeek} días/semana</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <Target className="w-4 h-4" />
-                      <span>{routine.workouts.length} entrenamientos</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="secondary">
-                      {routine.frequency === 'weekly' ? 'Semanal' : 'Diario'}
-                    </Badge>
-                    {routine.workouts.map((workout, index) => (
-                      <Badge 
-                        key={index} 
-                        variant={getCategoryColor(workout.category) as any}
-                        className="text-xs"
-                      >
-                        {workout.category}
+                    
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary">
+                        {routine.frequency === 'weekly' ? 'Semanal' : routine.frequency === 'daily' ? 'Diario' : 'Personalizado'}
                       </Badge>
-                    ))}
+                      {routine.workouts.map((workout, index) => (
+                        <Badge 
+                          key={index} 
+                          variant={getCategoryColor(workout.category) as any}
+                          className="text-xs"
+                        >
+                          {workout.category}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            ))
+          )}
         </TabsContent>
 
         <TabsContent value="active" className="space-y-4 mt-4">
@@ -192,64 +466,68 @@ const Routines: React.FC = () => {
         </TabsContent>
       </Tabs>
 
-      {/* Routine Details Modal */}
-      {selectedRoutine && (
+
+
+      {/* Edit Routine Modal */}
+      {isEditModalOpen && routineToEdit && (
+        <ExerciseSelector
+          isOpen={isEditModalOpen}
+          onClose={closeEditModal}
+          onSave={handleUpdateRoutine}
+          initialExercises={routineToEdit.workouts?.[0]?.sets?.map(set => ({
+            exerciseId: (set.exercise_id || '').toString(),
+            exercise: set.exercise || {
+              id: 0,
+              name: 'Ejercicio no encontrado',
+              description: '',
+              muscle_groups: [],
+              equipment: [],
+              difficulty: 'beginner',
+              instructions: []
+            },
+            sets: 1, // Default value since sets is not in the API response
+            reps: set.reps || 0,
+            weight: set.weight || 0,
+            restTime: set.rest_time || 0
+          })) || []}
+          routineName={routineToEdit.name || ''}
+          routineDescription={routineToEdit.description || ''}
+        />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && routineToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="w-full max-w-md max-h-[80vh] overflow-y-auto">
+          <Card className="w-full max-w-md">
             <CardHeader>
-              <CardTitle>Detalles de la Rutina</CardTitle>
+              <CardTitle>Confirmar Eliminación</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {(() => {
-                const routine = routines.find(r => r.id === selectedRoutine)
-                if (!routine) return null
-                
-                return (
-                  <>
-                    <div>
-                      <h3 className="font-semibold text-lg">{routine.name}</h3>
-                      <p className="text-gray-600 text-sm">{routine.description}</p>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Duración</p>
-                        <p className="text-lg font-semibold">{routine.duration} semanas</p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Frecuencia</p>
-                        <p className="text-lg font-semibold">{routine.daysPerWeek} días/semana</p>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <p className="text-sm font-medium text-gray-600 mb-2">Entrenamientos</p>
-                      <div className="space-y-2">
-                        {routine.workouts.map((workout, index) => (
-                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                            <div>
-                              <p className="font-medium text-sm">{workout.name}</p>
-                              <p className="text-xs text-gray-600">{workout.estimatedDuration} min</p>
-                            </div>
-                            <Badge variant={getDifficultyColor(workout.difficulty) as any}>
-                              {workout.difficulty}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    
-                    <div className="flex space-x-2 pt-4">
-                      <Button variant="outline" className="flex-1">
-                        Editar
-                      </Button>
-                      <Button className="flex-1 bg-primary-600 hover:bg-primary-700">
-                        Asignar Cliente
-                      </Button>
-                    </div>
-                  </>
-                )
-              })()}
+              <p>¿Estás seguro de que quieres eliminar la rutina "{routineToDelete.name}"?</p>
+              <p className="text-sm text-gray-600">Esta acción no se puede deshacer.</p>
+              
+              <div className="flex space-x-2 pt-4">
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={handleCloseDeleteModal}
+                  disabled={deletingRoutine}
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  className="flex-1 bg-red-600 hover:bg-red-700"
+                  onClick={handleConfirmDeleteRoutine}
+                  disabled={deletingRoutine}
+                >
+                  {deletingRoutine ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 mr-2" />
+                  )}
+                  Eliminar
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -261,6 +539,8 @@ const Routines: React.FC = () => {
         onClose={closeExerciseSelector}
         onSave={handleCreateRoutine}
       />
+
+      <Toaster position="top-right" />
     </div>
   )
 }

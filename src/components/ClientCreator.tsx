@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { usePaginatedApi, useApi } from '../hooks/useApi'
 import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
 import type { Client, Routine } from '../lib/api'
+import { formatDate, calculateAge } from '../lib/utils'
 import toast from 'react-hot-toast'
 import { 
   SUBSCRIPTION_TYPES, 
@@ -24,7 +25,7 @@ interface ClientFormValues {
   name: string
   email: string
   phone: string
-  age: string
+  birthDate: string
   weight: string
   height: string
   goals: string[]
@@ -105,11 +106,18 @@ const createValidationSchema = (isEditMode: boolean = false) => {
       .required('El teléfono es requerido')
       .matches(/^[\+]?[0-9\s\-\(\)]+$/, 'El teléfono no es válido'),
     
-    age: Yup.number()
-      .required('La edad es requerida')
-      .min(13, 'La edad debe ser al menos 13 años')
-      .max(100, 'La edad no puede exceder 100 años')
-      .typeError('La edad debe ser un número'),
+    birthDate: Yup.date()
+      .max(new Date(), 'La fecha de nacimiento no puede ser en el futuro')
+      .test('age', 'La edad debe ser al menos 13 años', function(value) {
+        if (!value) return true // Campo opcional
+        const age = Math.floor((new Date().getTime() - value.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+        return age >= 13
+      })
+      .test('age', 'La edad no puede exceder 100 años', function(value) {
+        if (!value) return true // Campo opcional
+        const age = Math.floor((new Date().getTime() - value.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+        return age <= 100
+      }),
     
     weight: Yup.number()
       .required('El peso es requerido')
@@ -141,7 +149,14 @@ const createValidationSchema = (isEditMode: boolean = false) => {
           // En modo edición, permitir fechas pasadas
           return true
         }
-        return value ? value >= new Date() : false
+        if (!value) return false
+        
+        // Comparar solo las fechas (sin tiempo)
+        const today = new Date()
+        const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+        const selectedDate = new Date(value.getFullYear(), value.getMonth(), value.getDate())
+        
+        return selectedDate >= todayDate
       }),
     
     endDate: Yup.date()
@@ -253,13 +268,13 @@ const initialValues = {
   name: '',
   email: '',
   phone: '',
-  age: '',
+  birthDate: '',
   weight: '',
   height: '',
   goals: [] as string[],
   
   // Suscripción
-  subscriptionType: 'standard',
+  subscriptionType: 'standard' as const,
   startDate: '',
   endDate: '',
   
@@ -348,12 +363,12 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   // Estado para el cliente que se está editando
   const [editingClient, setEditingClient] = useState<ExtendedClient | null>(null)
 
-  // Cargar rutinas al montar el componente
+  // Cargar rutinas al montar el componente o cuando cambie el término de búsqueda
   useEffect(() => {
     if (isOpen) {
-      loadRoutines()
+      loadRoutines({ search: searchRoutine })
     }
-  }, [isOpen, loadRoutines])
+  }, [isOpen, loadRoutines, searchRoutine])
 
   // Cargar cliente desde API cuando se abre en modo edición
   useEffect(() => {
@@ -430,7 +445,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
       name: clientToEditFinal.name,
       email: clientToEditFinal.email,
       phone: clientToEditFinal.phone,
-      age: numberToString(clientToEditFinal.age),
+      birthDate: clientToEditFinal.birth_date || '',
       weight: numberToString(clientToEditFinal.weight),
       height: numberToString(clientToEditFinal.height),
       goals: Array.isArray(clientToEditFinal.goals) ? clientToEditFinal.goals : [],
@@ -467,7 +482,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
       name: values.name.trim(),
       email: values.email.trim(),
       phone: values.phone.trim(),
-      age: parseInt(values.age),
+      birth_date: values.birthDate || undefined,
       weight: parseFloat(values.weight),
       height: parseFloat(values.height),
       goals: values.goals,
@@ -557,13 +572,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
 
 
 
-  const filteredRoutines = (routines || []).filter(routine => {
-    const nameMatch = routine.name.toLowerCase().includes(searchRoutine.toLowerCase())
-    const descriptionMatch = routine.description 
-      ? routine.description.toLowerCase().includes(searchRoutine.toLowerCase())
-      : false
-    return nameMatch || descriptionMatch
-  })
+  const filteredRoutines = routines?.results || []
 
   if (!isOpen) return null
 
@@ -617,7 +626,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
               
               try {
                 // Obtener el nombre de la rutina antes de eliminarla
-                const routine = routines?.find(r => r.id === routineId)
+                const routine = routines?.results?.find(r => r.id === routineId)
                 const routineName = routine?.name || 'Rutina'
                 
                 // Eliminar de la selección local
@@ -722,16 +731,15 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                             
                             <div>
                               <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Edad *
+                                Fecha de Nacimiento
                               </label>
                               <Field
                                 as={Input}
-                                type="number"
-                                name="age"
-                                placeholder="28"
-                                className={errors.age && touched.age ? 'border-red-500' : ''}
+                                type="date"
+                                name="birthDate"
+                                className={errors.birthDate && touched.birthDate ? 'border-red-500' : ''}
                               />
-                              <ErrorMessage name="age" component="span" className="block text-red-500 text-xs mt-1 flex items-center">
+                              <ErrorMessage name="birthDate" component="span" className="block text-red-500 text-xs mt-1 flex items-center">
                                 {(msg) => (
                                   <span className="text-red-500 text-xs flex items-center">
                                     <AlertCircle className="w-3 h-3 mr-1" />
@@ -1185,11 +1193,11 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                 Selecciona los días en los que se asignará la rutina
                               </p>
                             </div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="flex flex-wrap gap-1 justify-center">
                               {DAYS_OF_WEEK.map((day) => (
                                 <Button
                                   key={day.key}
-                                  variant={values.selectedDays?.includes(day.key) ? "default" : "outline"}
+                                  variant="outline"
                                   size="sm"
                                   onClick={() => {
                                     const currentDays = values.selectedDays || []
@@ -1198,9 +1206,13 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                       : [...currentDays, day.key]
                                     setFieldValue('selectedDays', updatedDays)
                                   }}
-                                  className="justify-start"
+                                  className={`text-xs px-2 py-1 ${
+                                    values.selectedDays?.includes(day.key)
+                                      ? 'bg-green-50 border-green-500 text-green-600 hover:bg-green-100' 
+                                      : 'hover:bg-gray-50'
+                                  }`}
                                 >
-                                  {day.label}
+                                  {day.short}
                                 </Button>
                               ))}
                             </div>
@@ -1245,10 +1257,12 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                           </div>
                         )}
                         
-                        {values.age && (
+                        {values.birthDate && (
                           <div className="flex items-center space-x-2">
                             <Calendar className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">{values.age} años</span>
+                            <span className="text-sm text-gray-600">
+                              {calculateAge(values.birthDate)} años
+                            </span>
                           </div>
                         )}
                       </div>
@@ -1346,7 +1360,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                         <h4 className="font-medium text-gray-900">Rutinas Asignadas</h4>
                         <div className="space-y-2">
                           {values.selectedRoutines.map((routineId) => {
-                            const routine = routines?.find(r => r.id === routineId)
+                            const routine = routines?.results?.find(r => r.id === routineId)
                             return routine ? (
                               <div key={routineId} className="p-2 bg-gray-50 rounded text-sm">
                                 {routine.name}

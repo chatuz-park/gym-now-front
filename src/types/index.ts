@@ -3,7 +3,7 @@ export interface Client {
   name: string
   email: string
   phone: string
-  age: number
+  birthDate?: string
   weight: number
   height: number
   goals: string[]

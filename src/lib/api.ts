@@ -72,7 +72,7 @@ export interface Client {
   name: string
   email: string
   phone: string
-  age: number
+  birth_date?: string
   weight: number
   height: number
   goals: any
@@ -222,7 +222,7 @@ export const authAPI = {
 // Funciones para clientes
 export const clientsAPI = {
   getAll: async (params?: { search?: string; ordering?: string }) => {
-    const response = await api.get<Client[]>('/clients/', { params })
+    const response = await api.get<{ count: number; next: string | null; previous: string | null; results: Client[] }>('/clients/', { params })
     return response.data
   },
 
@@ -270,8 +270,15 @@ export const clientsAPI = {
 // Funciones para ejercicios
 export const exercisesAPI = {
   getAll: async (params?: { search?: string; ordering?: string }) => {
-    const response = await api.get<Exercise[]>('/exercises/', { params })
-    return response.data
+    const response = await api.get<Exercise[] | { count: number; next: string | null; previous: string | null; results: Exercise[] }>('/exercises/', { params })
+    const data = response.data
+    
+    // Handle both paginated and non-paginated responses
+    if (data && typeof data === 'object' && 'results' in data) {
+      return data.results
+    }
+    
+    return data as Exercise[]
   },
 
   getById: async (id: number) => {
@@ -313,7 +320,7 @@ export const exercisesAPI = {
 // Funciones para rutinas
 export const routinesAPI = {
   getAll: async (params?: { search?: string; ordering?: string }) => {
-    const response = await api.get<Routine[]>('/routines/', { params })
+    const response = await api.get<{ count: number; next: string | null; previous: string | null; results: Routine[] }>('/routines/', { params })
     return response.data
   },
 

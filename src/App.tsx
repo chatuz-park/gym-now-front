@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Clients from './pages/Clients'
 import ClientDetail from './pages/ClientDetail'
 import Routines from './pages/Routines'
+import Exercises from './pages/Exercises'
 import Progress from './pages/Progress'
 import GlobalProgress from './pages/GlobalProgress'
 import Settings from './pages/Settings'
@@ -29,6 +30,7 @@ const App: React.FC = () => {
             <Route index element={<Dashboard />} />
             <Route path="clients" element={<Clients />} />
             <Route path="routines" element={<Routines />} />
+            <Route path="exercises" element={<Exercises />} />
             <Route path="progress" element={<GlobalProgress />} />
             <Route path="settings" element={<Settings />} />
           </Route>
