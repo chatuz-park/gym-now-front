@@ -11,19 +11,20 @@ import Exercises from './pages/Exercises'
 import Progress from './pages/Progress'
 import GlobalProgress from './pages/GlobalProgress'
 import Settings from './pages/Settings'
+import Profile from './pages/Profile'
 import Login from './pages/Login'
 
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
           
-          {/* Protected routes for admin/trainer */}
+          {/* Protected routes for owner/trainer */}
           <Route path="/" element={
-            <ProtectedRoute allowedRoles={['admin', 'trainer']}>
+            <ProtectedRoute allowedRoles={['owner', 'trainer']}>
               <Layout />
             </ProtectedRoute>
           }>
@@ -42,20 +43,29 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
           
-          {/* Client-specific routes */}
+          {/* Profile route for all authenticated users */}
+          <Route path="me" element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }>
+            <Route index element={<ClientDetail />} />
+          </Route>
+          
+          {/* Client/Guest-specific routes */}
           <Route path="my-routine" element={
-            <ProtectedRoute allowedRoles={['client']}>
+            <ProtectedRoute allowedRoles={['client', 'guest']}>
               <ClientDetail />
             </ProtectedRoute>
           } />
           <Route path="my-routine/progress" element={
-            <ProtectedRoute allowedRoles={['client']}>
+            <ProtectedRoute allowedRoles={['client', 'guest']}>
               <Progress />
             </ProtectedRoute>
           } />
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   )
 }
 

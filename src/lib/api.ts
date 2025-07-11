@@ -217,6 +217,20 @@ export const authAPI = {
       }
     }
   },
+
+  getUserProfile: async () => {
+    const response = await api.get<{
+      id: number
+      username: string
+      email?: string
+      first_name?: string
+      last_name?: string
+      date_joined: string
+      last_login?: string
+      role: string
+    }>('/user-profile/')
+    return response.data
+  },
 }
 
 // Funciones para clientes
@@ -263,6 +277,12 @@ export const clientsAPI = {
 
   getRoutines: async (clientId: number) => {
     const response = await api.get<Routine[]>(`/clients/${clientId}/routines/`)
+    return response.data
+  },
+
+  // Obtener información del cliente autenticado
+  getMe: async () => {
+    const response = await api.get<Client>('/clients/me/')
     return response.data
   },
 }

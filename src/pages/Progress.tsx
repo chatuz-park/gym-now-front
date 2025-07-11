@@ -9,18 +9,25 @@ import { Badge } from '../components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import { mockClients, mockProgressMetrics } from '../data/mockData'
 import { formatDate } from '../lib/utils'
+import { useAuth } from '../contexts/AuthContext'
 
 // MOCK: ID del cliente autenticado
 const AUTHENTICATED_CLIENT_ID = '1'
 
 const Progress: React.FC = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const clientId = AUTHENTICATED_CLIENT_ID
 
   const client = mockClients.find(c => c.id === clientId)
   const clientProgress = mockProgressMetrics
     .filter(p => p.clientId === clientId)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  // Función para determinar la ruta de inicio según el rol del usuario
+  const getHomeRoute = () => {
+    return (user?.role === 'client' || user?.role === 'guest') ? '/me' : '/'
+  }
 
   if (!client) {
     return (
@@ -29,7 +36,7 @@ const Progress: React.FC = () => {
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Cliente no encontrado</h2>
             <p className="text-gray-600 mb-4">El cliente que buscas no existe</p>
-            <Button onClick={() => navigate('/')}>
+            <Button onClick={() => navigate(getHomeRoute())}>
               <Home className="w-4 h-4 mr-2" />
               Ir al Inicio
             </Button>

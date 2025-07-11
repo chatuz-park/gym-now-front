@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react'
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
+import React, { useState, useEffect, useRef } from 'react'
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { 
-  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit
+  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -21,10 +21,16 @@ const ClientDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const location = useLocation()
+  const { user, logout } = useAuth()
   const currentDayParam = searchParams.get('day')
   const [currentDay, setCurrentDay] = useState(currentDayParam || getCurrentDayOfWeek())
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
+  // Detectar si estamos en la ruta /me
+  const isMeRoute = location.pathname === '/me'
+  
   // Usar el ID de la URL o el ID del cliente autenticado
   const clientId = id || user?.clientId
 
@@ -32,13 +38,25 @@ const ClientDetail: React.FC = () => {
   const isEditModalOpen = searchParams.get('modal') === 'edit-client'
   const isEditRoutinesModalOpen = searchParams.get('modal') === 'edit-routines'
 
-  // Hooks para cargar datos desde la API
-  const {
-    data: client,
-    loading: clientLoading,
-    error: clientError,
-    execute: loadClient
-  } = useApi<Client>(clientsAPI.getById)
+  // Función personalizada para cargar cliente según la ruta
+  const loadClientData = async () => {
+    try {
+      if (isMeRoute) {
+        const response = await clientsAPI.getMe()
+        return response
+      } else if (clientId) {
+        return await clientsAPI.getById(parseInt(clientId))
+      }
+      throw new Error('ID de cliente no válido')
+    } catch (error) {
+      throw error
+    }
+  }
+
+  // Hook personalizado para cargar datos del cliente
+  const [client, setClient] = useState<Client | null>(null)
+  const [clientLoading, setClientLoading] = useState(false)
+  const [clientError, setClientError] = useState<string | null>(null)
 
   const {
     data: clientProgress,
@@ -56,22 +74,58 @@ const ClientDetail: React.FC = () => {
 
   // Cargar datos al montar el componente
   useEffect(() => {
-    if (clientId) {
-      loadClient(parseInt(clientId))
-      loadProgress(parseInt(clientId))
-      loadRoutines(parseInt(clientId))
+    const fetchData = async () => {
+      try {
+        setClientLoading(true)
+        setClientError(null)
+        
+        // Cargar datos del cliente
+        const clientData = await loadClientData()
+        setClient(clientData)
+        
+        // Cargar progreso y rutinas si tenemos un clientId válido
+        if (clientData?.id) {
+          loadProgress(clientData.id)
+          loadRoutines(clientData.id)
+        }
+      } catch (error: any) {
+        setClientError(error.message || 'Error al cargar los datos del cliente')
+      } finally {
+        setClientLoading(false)
+      }
     }
-  }, [clientId, loadClient, loadProgress, loadRoutines])
+
+    fetchData()
+  }, [clientId, isMeRoute, loadProgress, loadRoutines])
+
+  // Cerrar dropdown cuando se hace clic fuera
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [])
+
+  // Función para determinar la ruta de inicio según el rol del usuario
+  const getHomeRoute = () => {
+    return (user?.role === 'client' || user?.role === 'guest') ? '/me' : '/'
+  }
 
   // Verificar permisos de acceso
   const hasAccess = () => {
-    // Administradores y entrenadores pueden acceder a cualquier cliente
-    if (user?.role === 'admin' || user?.role === 'trainer') {
+    // Owners y entrenadores pueden acceder a cualquier cliente
+    if (user?.role === 'owner' || user?.role === 'trainer') {
       return true
     }
     
-    // Clientes solo pueden ver su propia información
-    if (user?.role === 'client' && user?.clientId === clientId) {
+    // Clientes y guests solo pueden ver su propia información
+    if ((user?.role === 'client' || user?.role === 'guest') && user?.clientId === clientId) {
       return true
     }
     
@@ -86,7 +140,7 @@ const ClientDetail: React.FC = () => {
             <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Acceso denegado</h2>
             <p className="text-gray-600 mb-4">No tienes permiso para ver la información de este cliente.</p>
-            <Button onClick={() => navigate('/')}>
+            <Button onClick={() => navigate(getHomeRoute())}>
               <Home className="w-4 h-4 mr-2" />
               Ir al Inicio
             </Button>
@@ -124,7 +178,7 @@ const ClientDetail: React.FC = () => {
             <p className="text-gray-600 mb-4">
               {clientError || 'El cliente que buscas no existe'}
             </p>
-            <Button onClick={() => navigate('/')}>
+            <Button onClick={() => navigate(getHomeRoute())}>
               <Home className="w-4 h-4 mr-2" />
               Ir al Inicio
             </Button>
@@ -146,12 +200,12 @@ const ClientDetail: React.FC = () => {
     ) : []
   
   const getRoutineForDay = (day: string) => {
-    return assignedRoutines.find(routine => 
-      routine?.scheduled_days?.includes(day)
+    return assignedRoutines.find((routine: any) => 
+      routine?.assigned_days?.includes(day)
     )
   }
   
-  const currentRoutine = getRoutineForDay(currentDay)
+  const currentRoutine = getRoutineForDay(currentDay) as any
   
   const navigateToDay = (day: string) => {
     setCurrentDay(day)
@@ -186,7 +240,8 @@ const ClientDetail: React.FC = () => {
       if (clientId) {
         await clientsAPI.update(parseInt(clientId), clientData)
         // Recargar los datos del cliente
-        loadClient(parseInt(clientId))
+        const updatedClient = await loadClientData()
+        setClient(updatedClient)
       }
       handleCloseEditModal()
     } catch (error) {
@@ -201,10 +256,6 @@ const ClientDetail: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
-              <Button variant="outline" size="sm" onClick={() => navigate('/')}>
-                <Home className="w-4 h-4 mr-2" />
-                Dashboard
-              </Button>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">
                   {user?.role === 'client' ? 'Mi Rutina' : `Cliente: ${client?.name || 'Cargando...'}`}
@@ -214,18 +265,50 @@ const ClientDetail: React.FC = () => {
                 </p>
               </div>
             </div>
-            <Avatar className="w-10 h-10">
-              <AvatarImage 
-                src={user?.role === 'client' ? client.profile_image : undefined} 
-                alt={user?.role === 'client' ? client.name : user?.name || ''} 
-              />
-              <AvatarFallback>
-                {user?.role === 'client' 
-                  ? client.name.split(' ').map(n => n[0]).join('')
-                  : user?.name?.split(' ').map(n => n[0]).join('') || 'U'
-                }
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center space-x-2 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <Avatar className="w-10 h-10">
+                  <AvatarImage 
+                    src={user?.role === 'client' ? client.profile_image : undefined} 
+                    alt={user?.role === 'client' ? client.name : user?.name || ''} 
+                  />
+                  <AvatarFallback>
+                    {user?.role === 'client' 
+                      ? client.name.split(' ').map(n => n[0]).join('')
+                      : user?.name?.split(' ').map(n => n[0]).join('') || 'U'
+                    }
+                  </AvatarFallback>
+                </Avatar>
+                <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {/* Menú desplegable */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <p className="text-sm font-medium text-gray-900">
+                      {user?.name || user?.username}
+                    </p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {user?.role}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      logout()
+                      navigate('/login')
+                    }}
+                    className="w-full flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Cerrar Sesión</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -570,22 +653,22 @@ const ClientDetail: React.FC = () => {
                 {currentRoutine ? (
                   <div className="space-y-6">
                     <div className="bg-gray-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-lg mb-2">{currentRoutine.name}</h4>
-                      <p className="text-gray-600 mb-3">{currentRoutine.description}</p>
+                      <h4 className="font-semibold text-lg mb-2">{currentRoutine.routine?.name}</h4>
+                      <p className="text-gray-600 mb-3">{currentRoutine.routine?.description}</p>
                       <div className="flex items-center space-x-4 text-sm text-gray-500">
                         <div className="flex items-center space-x-1">
                           <Clock className="w-4 h-4" />
-                          <span>{currentRoutine.duration} semanas</span>
+                          <span>{currentRoutine.routine?.duration} semanas</span>
                         </div>
                         <div className="flex items-center space-x-1">
                           <Target className="w-4 h-4" />
-                          <span>{currentRoutine.days_per_week} días/semana</span>
+                          <span>{currentRoutine.routine?.days_per_week} días/semana</span>
                         </div>
                       </div>
                     </div>
                     <div className="space-y-4">
                       <h5 className="font-semibold">Mis Entrenamientos del día:</h5>
-                      {currentRoutine.workouts.map((workout, index) => (
+                      {currentRoutine.routine?.workouts?.map((workout, index) => (
                         <Card key={workout.id} className="border-l-4 border-l-primary-500">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between mb-3">
@@ -693,21 +776,21 @@ const ClientDetail: React.FC = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {assignedRoutines.map((routine) => (
+                    {assignedRoutines.map((routine: any) => (
                       <div key={routine?.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
-                          <h6 className="font-medium">{routine?.name}</h6>
-                          <p className="text-sm text-gray-600">{routine?.description}</p>
+                          <h6 className="font-medium">{routine?.routine?.name}</h6>
+                          <p className="text-sm text-gray-600">{routine?.routine?.description}</p>
                           <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                            <span>{routine?.days_per_week} días/semana</span>
+                            <span>{routine?.routine?.days_per_week} días/semana</span>
                             <span>•</span>
-                            <span>{routine?.duration} semanas</span>
+                            <span>{routine?.routine?.duration} semanas</span>
                             <span>•</span>
-                            <span>{routine?.workouts.length} entrenamientos</span>
+                            <span>{routine?.routine?.workouts?.length || 0} entrenamientos</span>
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          {routine?.scheduled_days?.map((day: string) => (
+                          {routine?.assigned_days?.map((day: string) => (
                             <Badge key={day} variant="outline" className="text-xs">
                               {DAYS_OF_WEEK.find(d => d.key === day)?.short}
                             </Badge>

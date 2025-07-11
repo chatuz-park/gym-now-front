@@ -444,6 +444,72 @@
       },
       "parameters": []
     },
+    "/clients/me/": {
+      "get": {
+        "operationId": "clients_me",
+        "description": "Obtener los datos del cliente autenticado",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "description": "A search term.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "ordering",
+            "in": "query",
+            "description": "Which field to use when ordering the results.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "A page number within the paginated result set.",
+            "required": false,
+            "type": "integer"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "required": [
+                "count",
+                "results"
+              ],
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "next": {
+                  "type": "string",
+                  "format": "uri",
+                  "x-nullable": true
+                },
+                "previous": {
+                  "type": "string",
+                  "format": "uri",
+                  "x-nullable": true
+                },
+                "results": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Client"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "clients"
+        ]
+      },
+      "parameters": []
+    },
     "/clients/statistics/": {
       "get": {
         "operationId": "clients_statistics",
@@ -1850,7 +1916,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         ],
@@ -1858,7 +1924,7 @@
           "201": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         },
@@ -2026,7 +2092,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         ],
@@ -2034,7 +2100,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         },
@@ -2051,7 +2117,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         ],
@@ -2059,7 +2125,7 @@
           "200": {
             "description": "",
             "schema": {
-              "$ref": "#/definitions/Routine"
+              "$ref": "#/definitions/RoutineCreate"
             }
           }
         },
@@ -2169,6 +2235,32 @@
         },
         "tags": [
           "token"
+        ]
+      },
+      "parameters": []
+    },
+    "/user-profile/": {
+      "get": {
+        "operationId": "user-profile_list",
+        "summary": "Obtener información del usuario autenticado",
+        "description": "Obtiene la información del usuario autenticado basado en el token de sesión JWT",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "schema": {
+              "$ref": "#/definitions/UserProfile"
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "tags": [
+          "user-profile"
         ]
       },
       "parameters": []
@@ -3196,44 +3288,6 @@
         }
       }
     },
-    "TokenObtainPair": {
-      "required": [
-        "username",
-        "password"
-      ],
-      "type": "object",
-      "properties": {
-        "username": {
-          "title": "Username",
-          "type": "string",
-          "minLength": 1
-        },
-        "password": {
-          "title": "Password",
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "TokenRefresh": {
-      "required": [
-        "refresh"
-      ],
-      "type": "object",
-      "properties": {
-        "refresh": {
-          "title": "Refresh",
-          "type": "string",
-          "minLength": 1
-        },
-        "access": {
-          "title": "Access",
-          "type": "string",
-          "readOnly": true,
-          "minLength": 1
-        }
-      }
-    },
     "WorkoutSetCreate": {
       "required": [
         "exercise",
@@ -3321,6 +3375,152 @@
           "items": {
             "$ref": "#/definitions/WorkoutSetCreate"
           }
+        }
+      }
+    },
+    "RoutineCreate": {
+      "required": [
+        "name",
+        "description",
+        "frequency",
+        "days_per_week",
+        "duration",
+        "workouts"
+      ],
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "maxLength": 100,
+          "minLength": 1
+        },
+        "description": {
+          "title": "Description",
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency": {
+          "title": "Frequency",
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly",
+            "custom"
+          ]
+        },
+        "days_per_week": {
+          "title": "Days per week",
+          "type": "integer",
+          "maximum": 2147483647,
+          "minimum": 0
+        },
+        "duration": {
+          "title": "Duration",
+          "description": "Duration in weeks",
+          "type": "integer",
+          "maximum": 2147483647,
+          "minimum": 0
+        },
+        "workouts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/WorkoutCreate"
+          }
+        }
+      }
+    },
+    "TokenObtainPair": {
+      "required": [
+        "username",
+        "password"
+      ],
+      "type": "object",
+      "properties": {
+        "username": {
+          "title": "Username",
+          "type": "string",
+          "minLength": 1
+        },
+        "password": {
+          "title": "Password",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "TokenRefresh": {
+      "required": [
+        "refresh"
+      ],
+      "type": "object",
+      "properties": {
+        "refresh": {
+          "title": "Refresh",
+          "type": "string",
+          "minLength": 1
+        },
+        "access": {
+          "title": "Access",
+          "type": "string",
+          "readOnly": true,
+          "minLength": 1
+        }
+      }
+    },
+    "UserProfile": {
+      "required": [
+        "username"
+      ],
+      "type": "object",
+      "properties": {
+        "id": {
+          "title": "ID",
+          "type": "integer",
+          "readOnly": true
+        },
+        "username": {
+          "title": "Username",
+          "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
+          "type": "string",
+          "pattern": "^[\\w.@+-]+$",
+          "maxLength": 150,
+          "minLength": 1
+        },
+        "email": {
+          "title": "Email address",
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "first_name": {
+          "title": "First name",
+          "type": "string",
+          "maxLength": 150
+        },
+        "last_name": {
+          "title": "Last name",
+          "type": "string",
+          "maxLength": 150
+        },
+        "date_joined": {
+          "title": "Date joined",
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true
+        },
+        "last_login": {
+          "title": "Last login",
+          "type": "string",
+          "format": "date-time",
+          "readOnly": true,
+          "x-nullable": true
+        },
+        "role": {
+          "title": "Role",
+          "type": "string",
+          "readOnly": true,
+          "minLength": 1
         }
       }
     }
