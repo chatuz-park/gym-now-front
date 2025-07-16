@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { 
-  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown
+  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown, BarChart3
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -9,6 +9,8 @@ import { Badge } from '../components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import ClientCreator from '../components/ClientCreator'
 import RoutineEditor from '../components/RoutineEditor'
+import ProgressChart from '../components/ProgressChart'
+import MetricSelector from '../components/MetricSelector'
 import { mockRoutines, mockExercises } from '../data/mockData'
 import { formatDate, calculateAge } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -27,6 +29,10 @@ const ClientDetail: React.FC = () => {
   const [currentDay, setCurrentDay] = useState(currentDayParam || getCurrentDayOfWeek())
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  // Estado para gráficas de progreso
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['weight', 'body_fat'])
+  const [showProgressChart, setShowProgressChart] = useState(false)
 
   // Detectar si estamos en la ruta /me
   const isMeRoute = location.pathname === '/me'
@@ -70,7 +76,7 @@ const ClientDetail: React.FC = () => {
     loading: routinesLoading,
     error: routinesError,
     execute: loadRoutines
-  } = useApi<Routine[]>(clientsAPI.getRoutines)
+  } = useApi<any[]>(clientRoutinesAPI.getByClientId)
 
   // Cargar datos al montar el componente
   useEffect(() => {
@@ -194,15 +200,33 @@ const ClientDetail: React.FC = () => {
 
   // Usar las constantes importadas de definitions.ts
   // Filtrar rutinas duplicadas basándose en el ID de la rutina
-  const assignedRoutines = clientRoutines ? 
-    clientRoutines.filter((routine, index, self) => 
-      index === self.findIndex(r => r.id === routine.id)
-    ) : []
+  // Handle paginated response from API
+  const routinesArray = clientRoutines?.results || clientRoutines || []
+  
+  const assignedRoutines = routinesArray.filter((routine: any, index: number, self: any[]) => 
+    index === self.findIndex((r: any) => r.id === routine.id)
+  )
   
   const getRoutineForDay = (day: string) => {
-    return assignedRoutines.find((routine: any) => 
-      routine?.assigned_days?.includes(day)
-    )
+    return assignedRoutines.find((routine: any) => {
+      const assignedDays = routine?.assigned_days
+      
+      // Handle different data types for assigned_days - Fixed for type safety
+      if (Array.isArray(assignedDays)) {
+        return assignedDays.includes(day)
+      } else if (typeof assignedDays === 'string') {
+        // If it's a string, it might be JSON or comma-separated
+        try {
+          const parsed = JSON.parse(assignedDays)
+          return Array.isArray(parsed) ? parsed.includes(day) : false
+        } catch {
+          // If not JSON, try comma-separated
+          return assignedDays.split(',').map(d => d.trim()).includes(day)
+        }
+      }
+      
+      return false
+    })
   }
   
   const currentRoutine = getRoutineForDay(currentDay) as any
@@ -233,6 +257,49 @@ const ClientDetail: React.FC = () => {
     const newParams = new URLSearchParams(searchParams)
     newParams.delete('modal')
     setSearchParams(newParams)
+  }
+
+  // Funciones para manejar gráficas de progreso
+  const handleMetricToggle = (metric: string) => {
+    setSelectedMetrics(prev => 
+      prev.includes(metric)
+        ? prev.filter(m => m !== metric)
+        : [...prev, metric]
+    )
+  }
+
+  const handleSelectAllMetrics = () => {
+    setSelectedMetrics([
+      'weight', 'body_fat', 'muscle_mass', 'chest', 'waist', 'biceps', 
+      'forearms', 'thighs', 'calves', 'neck', 'shoulders', 'hips'
+    ])
+  }
+
+  const handleClearAllMetrics = () => {
+    setSelectedMetrics([])
+  }
+
+  // Función para preparar datos para la gráfica
+  const prepareChartData = () => {
+    if (!clientProgress || clientProgress.length === 0) return []
+    
+    return clientProgress
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(progress => ({
+        date: progress.date,
+        weight: progress.weight,
+        body_fat: progress.body_fat,
+        muscle_mass: progress.muscle_mass,
+        chest: progress.measurements?.chest,
+        waist: progress.measurements?.waist,
+        biceps: progress.measurements?.biceps,
+        forearms: progress.measurements?.forearms,
+        thighs: progress.measurements?.thighs,
+        calves: progress.measurements?.calves,
+        neck: progress.measurements?.neck,
+        shoulders: progress.measurements?.shoulders,
+        hips: progress.measurements?.hips
+      }))
   }
 
   const handleSaveClient = async (clientData: any) => {
@@ -453,6 +520,20 @@ const ClientDetail: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Botón para mostrar gráficas de progreso */}
+                  {clientProgress && clientProgress.length > 1 && (
+                    <div className="pt-4 border-t border-gray-200">
+                      <Button
+                        onClick={() => setShowProgressChart(!showProgressChart)}
+                        variant="outline"
+                        className="w-full"
+                      >
+                        <BarChart3 className="w-4 h-4 mr-2" />
+                        {showProgressChart ? 'Ocultar Gráfica' : 'Ver Gráfica de Progreso'}
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Botón para ver historial */}
                   {clientProgress && clientProgress.length > 1 && (
                     <div className="pt-2">
@@ -469,7 +550,7 @@ const ClientDetail: React.FC = () => {
                 </CardContent>
               </Card>
             )}
-            
+
             {client.subscription_type && (
               <Card>
                 <CardHeader>
@@ -587,6 +668,36 @@ const ClientDetail: React.FC = () => {
           </div>
 
           <div className="lg:col-span-2 space-y-6">
+            {/* Sección de Gráficas de Progreso */}
+            {showProgressChart && clientProgress && clientProgress.length > 1 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <BarChart3 className="w-5 h-5" />
+                    <span>Mi Progreso</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Selector de métricas */}
+                  <MetricSelector
+                    selectedMetrics={selectedMetrics}
+                    onMetricToggle={handleMetricToggle}
+                    onSelectAll={handleSelectAllMetrics}
+                    onClearAll={handleClearAllMetrics}
+                  />
+                  
+                  {/* Gráfica de progreso */}
+                  {selectedMetrics.length > 0 && (
+                    <ProgressChart
+                      data={prepareChartData()}
+                      selectedMetrics={selectedMetrics}
+                      title="Evolución de Medidas"
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Navegación de días */}
             <Card>
               <CardHeader>
@@ -752,29 +863,39 @@ const ClientDetail: React.FC = () => {
                 )}
               </CardContent>
             </Card>
-            {assignedRoutines.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Target className="w-5 h-5" />
-                      <span>Mis Rutinas Asignadas</span>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => {
-                        const newParams = new URLSearchParams(searchParams)
-                        newParams.set('modal', 'edit-routines')
-                        setSearchParams(newParams)
-                      }}
-                    >
-                      <Edit className="w-4 h-4 mr-2" />
-                      Editar Rutinas
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Target className="w-5 h-5" />
+                    <span>Mis Rutinas Asignadas</span>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => {
+                      const newParams = new URLSearchParams(searchParams)
+                      newParams.set('modal', 'edit-routines')
+                      setSearchParams(newParams)
+                    }}
+                  >
+                    <Edit className="w-4 h-4 mr-2" />
+                    Editar Rutinas
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {routinesLoading ? (
+                  <div className="text-center py-4">
+                    <Loader2 className="w-8 h-8 text-primary-600 mx-auto mb-2 animate-spin" />
+                    <p className="text-sm text-gray-600">Cargando rutinas...</p>
+                  </div>
+                ) : routinesError ? (
+                  <div className="text-center py-4">
+                    <XCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                    <p className="text-sm text-red-600">Error al cargar rutinas: {routinesError}</p>
+                  </div>
+                ) : assignedRoutines.length > 0 ? (
                   <div className="space-y-3">
                     {assignedRoutines.map((routine: any) => (
                       <div key={routine?.id} className="flex items-center justify-between p-3 border rounded-lg">
@@ -790,18 +911,39 @@ const ClientDetail: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          {routine?.assigned_days?.map((day: string) => (
-                            <Badge key={day} variant="outline" className="text-xs">
-                              {DAYS_OF_WEEK.find(d => d.key === day)?.short}
-                            </Badge>
-                          ))}
+                          {(() => {
+                            const assignedDays = routine?.assigned_days
+                            let daysArray: string[] = []
+                            
+                            if (Array.isArray(assignedDays)) {
+                              daysArray = assignedDays
+                            } else if (typeof assignedDays === 'string') {
+                              try {
+                                const parsed = JSON.parse(assignedDays)
+                                daysArray = Array.isArray(parsed) ? parsed : []
+                              } catch {
+                                daysArray = assignedDays.split(',').map(d => d.trim())
+                              }
+                            }
+                            
+                            return daysArray.map((day: string) => (
+                              <Badge key={day} variant="outline" className="text-xs">
+                                {DAYS_OF_WEEK.find(d => d.key === day)?.short}
+                              </Badge>
+                            ))
+                          })()}
                         </div>
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                ) : (
+                  <div className="text-center py-4">
+                    <Target className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-600">No hay rutinas asignadas</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>

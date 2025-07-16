@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2 } from 'lucide-react'
+import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2, Ruler } from 'lucide-react'
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -11,7 +11,7 @@ import RoutineEditor from '../components/RoutineEditor'
 
 import { formatDate, calculateAge } from '../lib/utils'
 import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
-import { clientsAPI, routinesAPI, clientRoutinesAPI } from '../lib/api'
+import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
 import type { Client, Routine } from '../lib/api'
 import { 
   DAYS_OF_WEEK, 
@@ -34,6 +34,23 @@ const Clients: React.FC = () => {
   const [renewalDate, setRenewalDate] = useState('')
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
   const [searchInputValue, setSearchInputValue] = useState('')
+  const [isAddMeasurementsModalOpen, setIsAddMeasurementsModalOpen] = useState(false)
+  const [selectedClientForMeasurements, setSelectedClientForMeasurements] = useState<Client | null>(null)
+  const [measurementDate, setMeasurementDate] = useState('')
+  const [measurements, setMeasurements] = useState({
+    weight: '',
+    body_fat: '',
+    muscle_mass: '',
+    chest: '',
+    waist: '',
+    biceps: '',
+    forearms: '',
+    thighs: '',
+    calves: '',
+    neck: '',
+    shoulders: '',
+    hips: ''
+  })
 
   // Hook para cargar clientes desde la API
   const {
@@ -63,6 +80,20 @@ const Clients: React.FC = () => {
     execute: deleteClient,
     loading: deletingClient
   } = useApi(clientsAPI.delete)
+
+  // Hook para agregar medidas de progreso
+  const {
+    execute: addProgressMetrics,
+    loading: addingMeasurements
+  } = useApi(progressMetricsAPI.create)
+
+  // Hook para cargar medidas previas del cliente
+  const {
+    data: clientProgress,
+    loading: progressLoading,
+    error: progressError,
+    execute: loadClientProgress
+  } = useApi(progressMetricsAPI.getClientProgress)
 
   // Usar las constantes importadas de definitions.ts
 
@@ -337,6 +368,121 @@ const Clients: React.FC = () => {
 
   const handleCloseDeleteModal = () => {
     setClientToDelete(null)
+  }
+
+  const handleAddMeasurements = async (client: Client) => {
+    setSelectedClientForMeasurements(client)
+    setMeasurementDate(new Date().toISOString().split('T')[0])
+    
+    // Cargar medidas previas del cliente
+    try {
+      await loadClientProgress({ client_id: client.id, ordering: '-date' })
+    } catch (error) {
+      console.error('Error loading client progress:', error)
+    }
+    
+    setIsAddMeasurementsModalOpen(true)
+  }
+
+  const handleCloseMeasurementsModal = () => {
+    setIsAddMeasurementsModalOpen(false)
+    setSelectedClientForMeasurements(null)
+    setMeasurementDate('')
+    setMeasurements({
+      weight: '',
+      body_fat: '',
+      muscle_mass: '',
+      chest: '',
+      waist: '',
+      biceps: '',
+      forearms: '',
+      thighs: '',
+      calves: '',
+      neck: '',
+      shoulders: '',
+      hips: ''
+    })
+  }
+
+  // Función para obtener las últimas medidas del cliente
+  const getLatestMeasurements = () => {
+    if (!clientProgress || clientProgress.length === 0) {
+      return {
+        weight: '0',
+        body_fat: '0',
+        muscle_mass: '0',
+        chest: '0',
+        waist: '0',
+        biceps: '0',
+        forearms: '0',
+        thighs: '0',
+        calves: '0',
+        neck: '0',
+        shoulders: '0',
+        hips: '0'
+      }
+    }
+
+    // Obtener la medida más reciente (ya ordenada por fecha descendente)
+    const latest = clientProgress[0]
+    
+    return {
+      weight: latest.weight?.toString() || '0',
+      body_fat: latest.body_fat?.toString() || '0',
+      muscle_mass: latest.muscle_mass?.toString() || '0',
+      chest: latest.measurements?.chest?.toString() || '0',
+      waist: latest.measurements?.waist?.toString() || '0',
+      biceps: latest.measurements?.biceps?.toString() || '0',
+      forearms: latest.measurements?.forearms?.toString() || '0',
+      thighs: latest.measurements?.thighs?.toString() || '0',
+      calves: latest.measurements?.calves?.toString() || '0',
+      neck: latest.measurements?.neck?.toString() || '0',
+      shoulders: latest.measurements?.shoulders?.toString() || '0',
+      hips: latest.measurements?.hips?.toString() || '0'
+    }
+  }
+
+  const handleMeasurementChange = (field: string, value: string) => {
+    setMeasurements(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const handleSubmitMeasurements = async () => {
+    if (!selectedClientForMeasurements || !measurementDate) {
+      toast.error('Por favor completa todos los campos requeridos')
+      return
+    }
+
+    try {
+      const measurementsData = {
+        client_id: selectedClientForMeasurements.id,
+        date: measurementDate,
+        weight: parseFloat(measurements.weight) || 0,
+        body_fat: measurements.body_fat ? parseFloat(measurements.body_fat) : undefined,
+        muscle_mass: measurements.muscle_mass ? parseFloat(measurements.muscle_mass) : undefined,
+        measurements: {
+          chest: measurements.chest ? parseFloat(measurements.chest) : 0,
+          waist: measurements.waist ? parseFloat(measurements.waist) : 0,
+          biceps: measurements.biceps ? parseFloat(measurements.biceps) : 0,
+          forearms: measurements.forearms ? parseFloat(measurements.forearms) : 0,
+          thighs: measurements.thighs ? parseFloat(measurements.thighs) : 0,
+          calves: measurements.calves ? parseFloat(measurements.calves) : 0,
+          neck: measurements.neck ? parseFloat(measurements.neck) : 0,
+          shoulders: measurements.shoulders ? parseFloat(measurements.shoulders) : 0,
+          hips: measurements.hips ? parseFloat(measurements.hips) : 0
+        }
+      }
+
+      await addProgressMetrics(measurementsData)
+      toast.success('Medidas agregadas exitosamente')
+      handleCloseMeasurementsModal()
+      refreshClients()
+    } catch (error) {
+      toast.error('Error al agregar las medidas')
+      console.error('Error adding measurements:', error)
+    }
   }
 
   const handleConfirmDeleteClient = async () => {
@@ -928,6 +1074,18 @@ const Clients: React.FC = () => {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation()
+                            handleAddMeasurements(client)
+                          }}
+                          className="flex-1"
+                        >
+                          <Ruler className="w-4 h-4 mr-1" />
+                          Agregar Medidas
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
                             handleAssignRoutine(client.id)
                           }}
                           className="flex-1"
@@ -1351,6 +1509,273 @@ const Clients: React.FC = () => {
             refreshClients()
           }}
         />
+      )}
+
+      {/* Add Measurements Modal */}
+      {isAddMeasurementsModalOpen && selectedClientForMeasurements && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          onClick={handleCloseMeasurementsModal}
+        >
+          <Card 
+            className="w-full max-w-2xl max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white sticky top-0 z-10 border-b">
+              <CardTitle>Agregar Medidas</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCloseMeasurementsModal}
+                className="h-8 w-8 p-0 hover:bg-gray-100 flex-shrink-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <div className="max-h-[calc(90vh-80px)] overflow-y-auto">
+              <CardContent className="space-y-6 p-6">
+                <div className="text-center">
+                  <p className="text-sm text-gray-600">
+                    Agregar medidas de progreso para{' '}
+                    <span className="font-semibold">
+                      {selectedClientForMeasurements.name}
+                    </span>
+                  </p>
+                </div>
+
+                {/* Client Info */}
+                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                  <Avatar className="w-10 h-10">
+                    <AvatarImage src={selectedClientForMeasurements.profile_image} />
+                    <AvatarFallback>
+                      {selectedClientForMeasurements.name.split(' ').map(n => n[0]).join('')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <p className="font-medium text-sm">
+                      {selectedClientForMeasurements.name}
+                    </p>
+                    <p className="text-xs text-gray-600">
+                      {selectedClientForMeasurements.email}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Date Selection */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">
+                    Fecha de las medidas *
+                  </label>
+                  <Input
+                    type="date"
+                    value={measurementDate}
+                    onChange={(e) => setMeasurementDate(e.target.value)}
+                    max={new Date().toISOString().split('T')[0]}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Selecciona la fecha en que se tomaron las medidas
+                  </p>
+                </div>
+
+                {/* Measurements Form */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Medidas Corporales</h3>
+                  
+                  {/* Weight and Body Composition */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Peso (kg) *
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().weight}
+                        value={measurements.weight}
+                        onChange={(e) => handleMeasurementChange('weight', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Grasa Corporal (%)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().body_fat}
+                        value={measurements.body_fat}
+                        onChange={(e) => handleMeasurementChange('body_fat', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Masa Muscular (kg)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().muscle_mass}
+                        value={measurements.muscle_mass}
+                        onChange={(e) => handleMeasurementChange('muscle_mass', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Body Measurements */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Pecho (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().chest}
+                        value={measurements.chest}
+                        onChange={(e) => handleMeasurementChange('chest', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Cintura (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().waist}
+                        value={measurements.waist}
+                        onChange={(e) => handleMeasurementChange('waist', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Bíceps (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().biceps}
+                        value={measurements.biceps}
+                        onChange={(e) => handleMeasurementChange('biceps', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Antebrazos (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().forearms}
+                        value={measurements.forearms}
+                        onChange={(e) => handleMeasurementChange('forearms', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Muslos (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().thighs}
+                        value={measurements.thighs}
+                        onChange={(e) => handleMeasurementChange('thighs', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Pantorrillas (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().calves}
+                        value={measurements.calves}
+                        onChange={(e) => handleMeasurementChange('calves', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Cuello (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().neck}
+                        value={measurements.neck}
+                        onChange={(e) => handleMeasurementChange('neck', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Hombros (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().shoulders}
+                        value={measurements.shoulders}
+                        onChange={(e) => handleMeasurementChange('shoulders', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-600">
+                        Caderas (cm)
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder={getLatestMeasurements().hips}
+                        value={measurements.hips}
+                        onChange={(e) => handleMeasurementChange('hips', e.target.value)}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex space-x-3 pt-4">
+                  <Button 
+                    variant="outline" 
+                    onClick={handleCloseMeasurementsModal}
+                    className="flex-1"
+                    disabled={addingMeasurements}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button 
+                    onClick={handleSubmitMeasurements}
+                    className="flex-1 bg-primary-600 hover:bg-primary-700"
+                    disabled={!measurementDate || !measurements.weight || addingMeasurements}
+                  >
+                    {addingMeasurements ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Agregando...
+                      </>
+                    ) : (
+                      'Agregar Medidas'
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </div>
+          </Card>
+        </div>
       )}
 
       {/* Delete Client Confirmation Modal */}
