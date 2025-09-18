@@ -61,111 +61,59 @@ npm run dev
 
 4. Abre tu navegador en `http://localhost:5173`
 
+## 🐳 Docker
+
+### Variables de entorno
+
+Crea un archivo `.env` en la raíz (puedes basarte en `env.example`):
+
+```
+VITE_API_URL=http://localhost:8000/api
+PORT=5173        # Puerto del servidor Vite (perfil dev)
+HTTP_PORT=8080   # Puerto HTTP expuesto por Nginx (perfil prod)
+```
+
+### Desarrollo (Vite + HMR)
+
+Ejecuta el frontend con hot-reload dentro de Docker en el puerto configurado (`PORT`, por defecto 5173):
+
+```bash
+docker compose --profile dev up --build
+# Abrir: http://localhost:5173  (o el puerto que definas en PORT)
+```
+
+Opcionalmente puedes cambiar el puerto:
+
+```bash
+export PORT=5174
+export VITE_API_URL=http://localhost:8000/api
+docker compose --profile dev up --build
+# Abrir: http://localhost:5174
+```
+
+### Producción (build + Nginx)
+
+Construye y sirve la aplicación con Nginx en `HTTP_PORT` (por defecto 8080):
+
+```bash
+docker compose --profile prod up --build
+# Abrir: http://localhost:8080
+```
+
+Para cambiar el puerto público:
+
+```bash
+export HTTP_PORT=9090
+export VITE_API_URL=http://backend:8000/api
+docker compose --profile prod up --build
+# Abrir: http://localhost:9090
+```
+
+Notas:
+- El Dockerfile es multi-stage: `dev` (Vite) y `prod` (Nginx sirviendo `/dist`).
+- El Nginx está configurado para SPA (fallback a `index.html`).
+- `.dockerignore` reduce el contexto de build para imágenes más pequeñas.
+
 ## 🏗️ Estructura del Proyecto
 
 ```
-src/
-├── components/
-│   ├── ui/                 # Componentes base de UI
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── input.tsx
-│   │   ├── progress.tsx
-│   │   ├── avatar.tsx
-│   │   ├── tabs.tsx
-│   │   └── badge.tsx
-│   ├── Navigation.tsx      # Navegación principal
-│   ├── Dashboard.tsx       # Panel principal
-│   ├── Clients.tsx         # Gestión de clientes
-│   ├── Routines.tsx        # Gestión de rutinas
-│   ├── Progress.tsx        # Seguimiento de progreso
-│   └── Settings.tsx        # Configuración
-├── data/
-│   └── mockData.ts         # Datos de ejemplo
-├── lib/
-│   └── utils.ts           # Utilidades y helpers
-├── types/
-│   └── index.ts           # Definiciones de tipos TypeScript
-├── App.tsx                # Componente principal
-└── index.css              # Estilos globales
-```
-
-## 🎨 Componentes UI
-
-La aplicación utiliza un sistema de componentes modular basado en:
-- **Radix UI**: Componentes accesibles y sin estilos
-- **Tailwind CSS**: Utilidades de CSS para estilos
-- **Class Variance Authority**: Sistema de variantes para componentes
-
-### Componentes Disponibles:
-- `Button`: Botones con diferentes variantes y tamaños
-- `Card`: Contenedores con header, content y footer
-- `Input`: Campos de entrada con estados
-- `Progress`: Barras de progreso
-- `Avatar`: Avatares de usuario
-- `Tabs`: Pestañas organizacionales
-- `Badge`: Etiquetas para estados y categorías
-
-## 📱 Funcionalidades Principales
-
-### Dashboard
-- Resumen de estadísticas del gimnasio
-- Actividad reciente de clientes
-- Progreso de metas en tiempo real
-- Métricas clave de rendimiento
-
-### Gestión de Clientes
-- Lista de clientes con búsqueda
-- Perfiles detallados con información personal
-- Historial de entrenamientos
-- Seguimiento de objetivos
-
-### Rutinas de Entrenamiento
-- Biblioteca de ejercicios
-- Creación de rutinas personalizadas
-- Asignación a clientes
-- Seguimiento de progreso
-
-### Seguimiento de Progreso
-- Métricas de peso y composición corporal
-- Medidas corporales
-- Gráficos de evolución
-- Comparación temporal
-
-## 🔧 Scripts Disponibles
-
-- `npm run dev`: Inicia el servidor de desarrollo
-- `npm run build`: Construye la aplicación para producción
-- `npm run preview`: Previsualiza la build de producción
-- `npm run lint`: Ejecuta el linter
-
-## 🎯 Próximas Funcionalidades
-
-- [ ] Autenticación de usuarios
-- [ ] Base de datos real (Firebase/Supabase)
-- [ ] Notificaciones push
-- [ ] Exportación de reportes
-- [ ] Modo offline
-- [ ] Integración con wearables
-- [ ] Chat entre entrenador y cliente
-- [ ] Calendario de entrenamientos
-
-## 🤝 Contribución
-
-1. Fork el proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-## 📄 Licencia
-
-Este proyecto está bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
-
-## 👨‍💻 Autor
-
-Desarrollado con ❤️ para la gestión eficiente de gimnasios.
-
----
-
-**GymNow** - Transformando la gestión de fitness, un entrenamiento a la vez.
