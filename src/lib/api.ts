@@ -285,6 +285,23 @@ export const clientsAPI = {
     const response = await api.get<Client>('/clients/me/')
     return response.data
   },
+
+  // Subir imagen de perfil del cliente
+  uploadProfileImage: async (clientId: number, file: File) => {
+    const formData = new FormData()
+    formData.append('profile_image', file)
+    
+    const response = await api.post<{ profile_image: string; message: string }>(
+      `/clients/${clientId}/upload_profile_image/`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+    return response.data
+  },
 }
 
 // Funciones para ejercicios

@@ -1,18 +1,49 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { Button } from './ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
+import ProfileImageUploadModal from './ProfileImageUploadModal'
+import { clientsAPI } from '../lib/api'
+import type { Client } from '../lib/api'
 
 const Layout: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const [clientProfile, setClientProfile] = useState<Client | null>(null)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
   // Determinar si el usuario es un cliente o guest
   const isClientOrGuest = user?.role === 'client' || user?.role === 'guest'
+
+  // Cargar perfil del cliente si el usuario es un cliente
+  useEffect(() => {
+    const loadClientProfile = async () => {
+      // Solo intentar cargar si el usuario es cliente o guest
+      if (user?.role === 'client' || user?.role === 'guest') {
+        try {
+          const response = await clientsAPI.getMe()
+          
+          // Manejar respuesta paginada o directa
+          if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
+            setClientProfile(response.results[0])
+          } else if ('id' in response) {
+            setClientProfile(response as Client)
+          }
+        } catch (error) {
+          // Si falla, simplemente no mostramos la imagen
+          console.error('Error loading client profile in Layout:', error)
+        }
+      }
+    }
+
+    if (user) {
+      loadClientProfile()
+    }
+  }, [user])
 
   const tabs = [
     { id: '/', label: 'Inicio', icon: Home, path: '/' },
@@ -106,11 +137,27 @@ const Layout: React.FC = () => {
             {/* User Info and Logout */}
             <div className="mt-auto pt-6 border-t border-gray-200">
               <div className="flex items-center space-x-3 mb-4">
-                <Avatar className="w-8 h-8">
-                  <AvatarFallback>
-                    <User className="w-4 h-4" />
-                  </AvatarFallback>
-                </Avatar>
+                <button
+                  onClick={() => {
+                    // Solo mostrar modal si hay perfil de cliente, sino navegar a /me
+                    if (clientProfile) {
+                      setIsUploadModalOpen(true)
+                    } else {
+                      navigate('/me')
+                    }
+                  }}
+                  className="relative group"
+                  type="button"
+                >
+                  <Avatar className="w-8 h-8 cursor-pointer ring-2 ring-transparent group-hover:ring-primary-500 transition-all">
+                    {clientProfile?.profile_image ? (
+                      <AvatarImage src={clientProfile.profile_image} alt={user?.name || user?.username || ''} />
+                    ) : null}
+                    <AvatarFallback>
+                      <User className="w-4 h-4" />
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">
                     {user?.name || user?.username}
@@ -179,6 +226,29 @@ const Layout: React.FC = () => {
             </div>
           </div>
         </header>
+      )}
+
+      {/* Modal para subir foto de perfil */}
+      {clientProfile && (
+        <ProfileImageUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          clientId={clientProfile.id}
+          currentImageUrl={clientProfile.profile_image}
+          clientName={clientProfile.name}
+          onUploadSuccess={(imageUrl) => {
+            // Actualizar la imagen en el perfil local
+            setClientProfile((prev) => prev ? { ...prev, profile_image: imageUrl } : null)
+            // Recargar el perfil completo
+            clientsAPI.getMe().then((response) => {
+              if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
+                setClientProfile(response.results[0])
+              } else if ('id' in response) {
+                setClientProfile(response as Client)
+              }
+            }).catch(console.error)
+          }}
+        />
       )}
     </div>
   )

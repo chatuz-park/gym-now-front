@@ -1,39 +1,46 @@
 import React, { useState, useEffect } from 'react'
 import { clientsAPI } from '../lib/api'
 import type { Client } from '../lib/api'
-import { useAuth } from '../contexts/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
+import ProfileImageUploadModal from '../components/ProfileImageUploadModal'
 
 const Profile: React.FC = () => {
   const [profile, setProfile] = useState<Client | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const { user } = useAuth()
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        const response = await clientsAPI.getMe()
-        
-        // El endpoint devuelve un array con un solo cliente (el autenticado)
-        if (response.results && response.results.length > 0) {
+  const fetchProfile = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await clientsAPI.getMe()
+      
+      // El endpoint puede devolver un objeto Client directamente o una respuesta paginada
+      if ('results' in response && Array.isArray(response.results)) {
+        if (response.results.length > 0) {
           setProfile(response.results[0])
         } else {
           setError('No se encontró información del perfil')
         }
-      } catch (err: any) {
-        console.error('Error fetching profile:', err)
-        setError(err.response?.data?.detail || 'Error al cargar el perfil')
-      } finally {
-        setLoading(false)
+      } else if ('id' in response) {
+        // Es un objeto Client directamente
+        setProfile(response as Client)
+      } else {
+        setError('No se encontró información del perfil')
       }
+    } catch (err: any) {
+      console.error('Error fetching profile:', err)
+      setError(err.response?.data?.detail || 'Error al cargar el perfil')
+    } finally {
+      setLoading(false)
     }
+  }
 
+  useEffect(() => {
     fetchProfile()
   }, [])
 
@@ -108,12 +115,23 @@ const Profile: React.FC = () => {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-4">
-            <Avatar className="h-16 w-16">
-              <AvatarImage src={profile.profile_image} alt={profile.name} />
-              <AvatarFallback className="text-lg">
-                {profile.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              onClick={() => setIsUploadModalOpen(true)}
+              className="relative group"
+              type="button"
+            >
+              <Avatar className="h-16 w-16 cursor-pointer ring-2 ring-transparent group-hover:ring-primary-500 transition-all">
+                <AvatarImage src={profile.profile_image} alt={profile.name} />
+                <AvatarFallback className="text-lg">
+                  {profile.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center">
+                <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                  Cambiar
+                </span>
+              </div>
+            </button>
             <div>
               <div className="text-2xl font-bold">{profile.name}</div>
               <div className="text-sm text-gray-500">{profile.email}</div>
@@ -246,6 +264,23 @@ const Profile: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Modal para subir foto de perfil */}
+      {profile && (
+        <ProfileImageUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          clientId={profile.id}
+          currentImageUrl={profile.profile_image}
+          clientName={profile.name}
+          onUploadSuccess={(imageUrl) => {
+            // Actualizar la imagen en el perfil local
+            setProfile((prev) => prev ? { ...prev, profile_image: imageUrl } : null)
+            // Recargar el perfil completo para asegurar consistencia
+            fetchProfile()
+          }}
+        />
       )}
     </div>
   )

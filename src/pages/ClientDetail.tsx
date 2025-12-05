@@ -11,6 +11,7 @@ import ClientCreator from '../components/ClientCreator'
 import RoutineEditor from '../components/RoutineEditor'
 import ProgressChart from '../components/ProgressChart'
 import MetricSelector from '../components/MetricSelector'
+import ProfileImageUploadModal from '../components/ProfileImageUploadModal'
 import { mockRoutines, mockExercises } from '../data/mockData'
 import { formatDate, calculateAge } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -33,6 +34,9 @@ const ClientDetail: React.FC = () => {
   // Estado para gráficas de progreso
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['weight', 'body_fat'])
   const [showProgressChart, setShowProgressChart] = useState(false)
+  
+  // Estado para modal de subida de foto de perfil
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
   // Detectar si estamos en la ruta /me
   const isMeRoute = location.pathname === '/me'
@@ -393,12 +397,29 @@ const ClientDetail: React.FC = () => {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center space-x-3">
-                  <Avatar className="w-16 h-16">
-                    <AvatarImage src={client.profile_image} alt={client.name} />
-                    <AvatarFallback>
-                      {client.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
+                  <button
+                    onClick={() => {
+                      if (isMeRoute || user?.role === 'client') {
+                        setIsUploadModalOpen(true)
+                      }
+                    }}
+                    className="relative group"
+                    type="button"
+                  >
+                    <Avatar className={`w-16 h-16 ${(isMeRoute || user?.role === 'client') ? 'cursor-pointer ring-2 ring-transparent group-hover:ring-primary-500' : ''} transition-all`}>
+                      <AvatarImage src={client.profile_image} alt={client.name} />
+                      <AvatarFallback>
+                        {client.name.split(' ').map(n => n[0]).join('')}
+                      </AvatarFallback>
+                    </Avatar>
+                    {(isMeRoute || user?.role === 'client') && (
+                      <div className="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center pointer-events-none">
+                        <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                          Cambiar
+                        </span>
+                      </div>
+                    )}
+                  </button>
                   <div>
                     <h3 className="font-semibold text-lg">{client.name}</h3>
                     <p className="text-gray-600">{client.email}</p>
@@ -969,6 +990,43 @@ const ClientDetail: React.FC = () => {
           onRoutinesUpdated={() => {
             // Recargar las rutinas del cliente
             loadRoutines(parseInt(clientId.toString()))
+          }}
+        />
+      )}
+
+      {/* Modal para subir foto de perfil - Solo visible si es la ruta /me o si el usuario es cliente */}
+      {client && client.id && (isMeRoute || user?.role === 'client') && isUploadModalOpen && (
+        <ProfileImageUploadModal
+          isOpen={isUploadModalOpen}
+          onClose={() => setIsUploadModalOpen(false)}
+          clientId={client.id}
+          currentImageUrl={client.profile_image}
+          clientName={client.name}
+          onUploadSuccess={async (imageUrl) => {
+            // Actualizar la imagen en el cliente local inmediatamente
+            setClient((prev) => prev ? { ...prev, profile_image: imageUrl } : null)
+            // Recargar los datos del cliente para asegurar consistencia
+            try {
+              let clientData: Client
+              if (isMeRoute) {
+                const response = await clientsAPI.getMe()
+                // Manejar respuesta paginada o directa
+                if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
+                  clientData = response.results[0]
+                } else if ('id' in response) {
+                  clientData = response as Client
+                } else {
+                  return
+                }
+              } else if (client?.id) {
+                clientData = await clientsAPI.getById(client.id)
+              } else {
+                return
+              }
+              setClient(clientData)
+            } catch (error) {
+              console.error('Error reloading client data:', error)
+            }
           }}
         />
       )}
