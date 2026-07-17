@@ -78,7 +78,7 @@ HTTP_PORT=8080   # Puerto HTTP expuesto por Nginx (perfil prod)
 Ejecuta el frontend con hot-reload dentro de Docker en el puerto configurado (`PORT`, por defecto 5173):
 
 ```bash
-docker compose --profile dev up --build
+docker-compose --profile dev up --build
 # Abrir: http://localhost:5173  (o el puerto que definas en PORT)
 ```
 
@@ -87,7 +87,7 @@ Opcionalmente puedes cambiar el puerto:
 ```bash
 export PORT=5174
 export VITE_API_URL=http://localhost:8000/api
-docker compose --profile dev up --build
+docker-compose --profile dev up --build
 # Abrir: http://localhost:5174
 ```
 
@@ -96,7 +96,7 @@ docker compose --profile dev up --build
 Construye y sirve la aplicación con Nginx en `HTTP_PORT` (por defecto 8080):
 
 ```bash
-docker compose --profile prod up --build
+docker-compose --profile prod up --build
 # Abrir: http://localhost:8080
 ```
 
@@ -105,7 +105,7 @@ Para cambiar el puerto público:
 ```bash
 export HTTP_PORT=9090
 export VITE_API_URL=http://backend:8000/api
-docker compose --profile prod up --build
+docker-compose --profile prod up --build
 # Abrir: http://localhost:9090
 ```
 
