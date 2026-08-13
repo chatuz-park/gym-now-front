@@ -7,7 +7,7 @@ Se ha implementado Formik y Yup para hacer la validación del formulario de crea
 ## ✅ Dependencias Instaladas
 
 ```bash
-npm install formik yup
+bun add formik yup
 ```
 
 ## 🔧 **Esquema de Validación con Yup**

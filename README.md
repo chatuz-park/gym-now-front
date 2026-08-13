@@ -36,12 +36,15 @@ Una aplicación móvil para el seguimiento de rutinas y el avance de clientes en
 
 - **Frontend**: React 18 + TypeScript
 - **Build Tool**: Vite
+- **Package manager**: Bun
 - **Styling**: Tailwind CSS
 - **UI Components**: Radix UI + Lucide React
 - **State Management**: React Hooks
 - **Icons**: Lucide React
 
 ## 📦 Instalación
+
+Requiere [Bun](https://bun.sh) 1.3+.
 
 1. Clona el repositorio:
 ```bash
@@ -51,19 +54,19 @@ cd gym-now
 
 2. Instala las dependencias:
 ```bash
-npm install
+bun install
 ```
 
 3. Inicia el servidor de desarrollo:
 ```bash
-npm run dev
+bun run dev
 ```
 
 4. Abre tu navegador en `http://localhost:5173`
 
 ## 🐳 Docker
 
-El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile (compatible con el builder clásico de Docker, sin BuildKit). Las etapas de Node usan `node:22-bookworm-slim` porque `node:22-alpine` dispara un bug de npm (`Exit handler never called`); la imagen final de producción sigue siendo `nginx:alpine`.
+El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se instalan con **Bun** (`bun install --frozen-lockfile`) y se cachean por `bun.lock`. La imagen final de producción sigue siendo `nginx:alpine`.
 
 ### Variables de entorno
 
@@ -119,7 +122,7 @@ docker compose --profile prod up
 
 ### Notas
 
-- **Etapas:** `deps` (npm ci), `dev` (Vite + HMR), `build` (assets estáticos) y `prod` (Nginx sirviendo `/dist`).
+- **Etapas:** `deps` (`bun install --frozen-lockfile`), `dev` (Vite + HMR), `build` (assets estáticos) y `prod` (Nginx sirviendo `/dist`).
 - **Nginx:** SPA con fallback a `index.html` (sin caché), gzip, headers de seguridad y caché larga para assets hasheados de Vite.
 - **Healthcheck:** el contenedor de producción comprueba `http://127.0.0.1/` y apaga nginx con `SIGQUIT`.
 - **`.dockerignore`:** reduce el contexto de build (git, IDE, `node_modules`, `.env`, markdown, compose).

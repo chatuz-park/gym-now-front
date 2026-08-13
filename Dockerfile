@@ -1,12 +1,11 @@
-# Node 22 + Alpine hits a known npm bug ("Exit handler never called").
-# Build/dev use Debian slim; the final prod image is still nginx:alpine.
-FROM node:22-bookworm-slim AS deps
+# --- Install dependencies (cached unless lockfile changes) ---
+FROM oven/bun:1.3.10-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 # --- Dev: Vite with HMR ---
-FROM node:22-bookworm-slim AS dev
+FROM oven/bun:1.3.10-alpine AS dev
 WORKDIR /app
 ENV HOST=0.0.0.0 \
     PORT=5173 \
@@ -14,11 +13,11 @@ ENV HOST=0.0.0.0 \
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 EXPOSE 5173
-CMD ["sh", "-c", "npm run dev -- --host 0.0.0.0 --port ${PORT:-5173}"]
+CMD ["sh", "-c", "bun run dev -- --host 0.0.0.0 --port ${PORT:-5173}"]
 
 # --- Build static assets ---
 # Vite inlines VITE_* at compile time; pass them as --build-arg (runtime ENV is ignored).
-FROM node:22-bookworm-slim AS build
+FROM oven/bun:1.3.10-alpine AS build
 WORKDIR /app
 ARG VITE_API_URL=http://localhost:8000/api
 ARG VITE_APP_NAME=Gym Now
@@ -29,7 +28,7 @@ ENV NODE_ENV=production \
     VITE_APP_VERSION=$VITE_APP_VERSION
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN bun run build
 
 # --- Production: Nginx serves the SPA ---
 FROM nginx:1.27-alpine AS prod

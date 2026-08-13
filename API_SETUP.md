@@ -25,7 +25,7 @@ VITE_APP_VERSION=1.0.0
 ### 2. Dependencias Instaladas
 
 ```bash
-npm install axios
+bun add axios
 ```
 
 ## 📁 Estructura de Archivos
