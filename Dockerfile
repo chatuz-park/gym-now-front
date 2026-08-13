@@ -1,11 +1,8 @@
-# syntax=docker/dockerfile:1
-
 # --- Install dependencies (cached unless lockfile changes) ---
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --legacy-peer-deps
+RUN npm ci --legacy-peer-deps && npm cache clean --force
 
 # --- Dev: Vite with HMR ---
 FROM node:22-alpine AS dev

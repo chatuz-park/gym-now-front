@@ -63,7 +63,7 @@ npm run dev
 
 ## 🐳 Docker
 
-El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile y npm usa caché de BuildKit.
+El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile (compatible con el builder clásico de Docker, sin BuildKit).
 
 ### Variables de entorno
 
