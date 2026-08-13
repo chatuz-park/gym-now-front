@@ -1,12 +1,19 @@
 # --- Install dependencies (cached unless lockfile changes) ---
-FROM oven/bun:1.3.10-alpine AS deps
+FROM oven/bun:1.3.10-slim AS deps
 WORKDIR /app
+USER root
+# Bun's default 48 parallel downloads + hardlinks on overlayfs often hang in Docker.
+ENV BUN_CONFIG_HTTP_IDLE_TIMEOUT=30
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile \
+    --network-concurrency=8 \
+    --backend=copyfile \
+    --no-progress
 
 # --- Dev: Vite with HMR ---
-FROM oven/bun:1.3.10-alpine AS dev
+FROM oven/bun:1.3.10-slim AS dev
 WORKDIR /app
+USER root
 ENV HOST=0.0.0.0 \
     PORT=5173 \
     CHOKIDAR_USEPOLLING=true
@@ -17,8 +24,9 @@ CMD ["sh", "-c", "bun run dev -- --host 0.0.0.0 --port ${PORT:-5173}"]
 
 # --- Build static assets ---
 # Vite inlines VITE_* at compile time; pass them as --build-arg (runtime ENV is ignored).
-FROM oven/bun:1.3.10-alpine AS build
+FROM oven/bun:1.3.10-slim AS build
 WORKDIR /app
+USER root
 ARG VITE_API_URL=http://localhost:8000/api
 ARG VITE_APP_NAME=Gym Now
 ARG VITE_APP_VERSION=1.0.0

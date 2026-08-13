@@ -66,7 +66,7 @@ bun run dev
 
 ## 🐳 Docker
 
-El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se instalan con **Bun** (`bun install --frozen-lockfile`) y se cachean por `bun.lock`. La imagen final de producción sigue siendo `nginx:alpine`.
+El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se instalan con **Bun** (`bun install --frozen-lockfile`) y se cachean por `bun.lock`. En Docker se usa `oven/bun:1.3.10-slim` (no Alpine) y `--network-concurrency=8 --backend=copyfile`, porque el install por defecto suele quedarse colgado en overlayfs/red. La imagen final de producción sigue siendo `nginx:alpine`.
 
 ### Variables de entorno
 
