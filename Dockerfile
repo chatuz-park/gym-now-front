@@ -1,11 +1,12 @@
-# --- Install dependencies (cached unless lockfile changes) ---
-FROM node:22-alpine AS deps
+# Node 22 + Alpine hits a known npm bug ("Exit handler never called").
+# Build/dev use Debian slim; the final prod image is still nginx:alpine.
+FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --legacy-peer-deps && npm cache clean --force
+RUN npm ci --legacy-peer-deps
 
 # --- Dev: Vite with HMR ---
-FROM node:22-alpine AS dev
+FROM node:22-bookworm-slim AS dev
 WORKDIR /app
 ENV HOST=0.0.0.0 \
     PORT=5173 \
@@ -17,7 +18,7 @@ CMD ["sh", "-c", "npm run dev -- --host 0.0.0.0 --port ${PORT:-5173}"]
 
 # --- Build static assets ---
 # Vite inlines VITE_* at compile time; pass them as --build-arg (runtime ENV is ignored).
-FROM node:22-alpine AS build
+FROM node:22-bookworm-slim AS build
 WORKDIR /app
 ARG VITE_API_URL=http://localhost:8000/api
 ARG VITE_APP_NAME=Gym Now

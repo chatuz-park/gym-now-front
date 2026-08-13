@@ -63,7 +63,7 @@ npm run dev
 
 ## 🐳 Docker
 
-El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile (compatible con el builder clásico de Docker, sin BuildKit).
+El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile (compatible con el builder clásico de Docker, sin BuildKit). Las etapas de Node usan `node:22-bookworm-slim` porque `node:22-alpine` dispara un bug de npm (`Exit handler never called`); la imagen final de producción sigue siendo `nginx:alpine`.
 
 ### Variables de entorno
 
