@@ -16,5 +16,8 @@ export default defineConfig({
     host,
     port,
     allowedHosts,
+    watch: {
+      usePolling: process.env.CHOKIDAR_USEPOLLING === 'true',
+    },
   },
 })

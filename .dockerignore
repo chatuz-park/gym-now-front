@@ -4,8 +4,12 @@ npm-debug.log
 .gitignore
 Dockerfile
 .dockerignore
+docker-compose*.yml
 .vscode
 .idea
+.github
+.cursor
+*.md
 *.log
 coverage
 dist

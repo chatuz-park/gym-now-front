@@ -63,22 +63,28 @@ npm run dev
 
 ## 🐳 Docker
 
+El `Dockerfile` es multi-stage (`deps` → `dev` / `build` → `prod`). Las dependencias se cachean por lockfile y npm usa caché de BuildKit.
+
 ### Variables de entorno
 
 Crea un archivo `.env` en la raíz (puedes basarte en `env.example`):
 
 ```
 VITE_API_URL=http://localhost:8000/api
+VITE_APP_NAME=Gym Now
+VITE_APP_VERSION=1.0.0
 PORT=5173        # Puerto del servidor Vite (perfil dev)
 HTTP_PORT=8080   # Puerto HTTP expuesto por Nginx (perfil prod)
 ```
 
+> **Importante:** Vite incrusta las variables `VITE_*` en el JavaScript **en tiempo de build**. En producción no basta con un `environment:` en el contenedor Nginx: hay que pasarlas como **build args**. Además, `VITE_API_URL` debe ser una URL que el **navegador** pueda alcanzar (por ejemplo `http://localhost:8000/api` o `https://api.tudominio.com/api`), no un hostname interno de Docker como `backend`.
+
 ### Desarrollo (Vite + HMR)
 
-Ejecuta el frontend con hot-reload dentro de Docker en el puerto configurado (`PORT`, por defecto 5173):
+Ejecuta el frontend con hot-reload dentro de Docker en el puerto configurado (`PORT`, por defecto 5173). El contenedor usa polling de archivos para que el HMR funcione en Docker Desktop:
 
 ```bash
-docker-compose --profile dev up --build
+docker compose --profile dev up --build
 # Abrir: http://localhost:5173  (o el puerto que definas en PORT)
 ```
 
@@ -87,32 +93,36 @@ Opcionalmente puedes cambiar el puerto:
 ```bash
 export PORT=5174
 export VITE_API_URL=http://localhost:8000/api
-docker-compose --profile dev up --build
+docker compose --profile dev up --build
 # Abrir: http://localhost:5174
 ```
 
 ### Producción (build + Nginx)
 
-Construye y sirve la aplicación con Nginx en `HTTP_PORT` (por defecto 8080):
+Construye y sirve la aplicación con Nginx en `HTTP_PORT` (por defecto 8080). Compose reenvía `VITE_*` del `.env` como build args:
 
 ```bash
-docker-compose --profile prod up --build
+docker compose --profile prod up --build
 # Abrir: http://localhost:8080
 ```
 
-Para cambiar el puerto público:
+Para cambiar el puerto público y la URL de la API:
 
 ```bash
-export HTTP_PORT=9090
-export VITE_API_URL=http://backend:8000/api
-docker-compose --profile prod up --build
-# Abrir: http://localhost:9090
+docker compose --profile prod build \
+  --build-arg VITE_API_URL=https://api.tudominio.com/api \
+  --build-arg VITE_APP_NAME="Gym Now" \
+  --build-arg VITE_APP_VERSION=1.0.0
+docker compose --profile prod up
+# Abrir: http://localhost:8080  (o HTTP_PORT)
 ```
 
-Notas:
-- El Dockerfile es multi-stage: `dev` (Vite) y `prod` (Nginx sirviendo `/dist`).
-- El Nginx está configurado para SPA (fallback a `index.html`).
-- `.dockerignore` reduce el contexto de build para imágenes más pequeñas.
+### Notas
+
+- **Etapas:** `deps` (npm ci), `dev` (Vite + HMR), `build` (assets estáticos) y `prod` (Nginx sirviendo `/dist`).
+- **Nginx:** SPA con fallback a `index.html` (sin caché), gzip, headers de seguridad y caché larga para assets hasheados de Vite.
+- **Healthcheck:** el contenedor de producción comprueba `http://127.0.0.1/` y apaga nginx con `SIGQUIT`.
+- **`.dockerignore`:** reduce el contexto de build (git, IDE, `node_modules`, `.env`, markdown, compose).
 
 ## 🏗️ Estructura del Proyecto
 
