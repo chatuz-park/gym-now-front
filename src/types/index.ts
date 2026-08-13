@@ -4,6 +4,7 @@ export interface Client {
   email: string
   phone: string
   birthDate?: string
+  age?: number
   weight: number
   height: number
   goals: string[]

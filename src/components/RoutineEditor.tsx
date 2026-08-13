@@ -3,11 +3,10 @@ import { X, Target, Calendar, Trash2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
-import { Badge } from './ui/badge'
 import { useApi } from '../hooks/useApi'
 import { clientRoutinesAPI, clientsAPI } from '../lib/api'
 import { DAYS_OF_WEEK } from '../definitions'
-import type { Routine, Client } from '../lib/api'
+import type { Routine } from '../lib/api'
 import toast from 'react-hot-toast'
 
 interface RoutineEditorProps {

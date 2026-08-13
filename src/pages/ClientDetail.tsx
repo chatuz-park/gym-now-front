@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { 
-  ArrowLeft, Calendar, Clock, Target, User, Scale, Ruler, CreditCard, AlertTriangle, ChevronLeft, ChevronRight, Play, CheckCircle, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown, BarChart3
+  Calendar, Clock, Target, User, Scale, Ruler, CreditCard, ChevronLeft, ChevronRight, Play, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown, BarChart3
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -12,13 +12,12 @@ import RoutineEditor from '../components/RoutineEditor'
 import ProgressChart from '../components/ProgressChart'
 import MetricSelector from '../components/MetricSelector'
 import ProfileImageUploadModal from '../components/ProfileImageUploadModal'
-import { mockRoutines, mockExercises } from '../data/mockData'
 import { formatDate, calculateAge } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { DAYS_OF_WEEK, getCurrentDayOfWeek, getSubscriptionStatus } from '../definitions'
-import { useApi, usePaginatedApi } from '../hooks/useApi'
-import { clientsAPI, exercisesAPI, routinesAPI, clientRoutinesAPI } from '../lib/api'
-import type { Client, ProgressMetrics, Routine, Exercise } from '../lib/api'
+import { useApi } from '../hooks/useApi'
+import { clientsAPI, clientRoutinesAPI } from '../lib/api'
+import type { Client, ProgressMetrics } from '../lib/api'
 
 const ClientDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -70,8 +69,6 @@ const ClientDetail: React.FC = () => {
 
   const {
     data: clientProgress,
-    loading: progressLoading,
-    error: progressError,
     execute: loadProgress
   } = useApi<ProgressMetrics[]>(clientsAPI.getProgress)
 
@@ -80,7 +77,7 @@ const ClientDetail: React.FC = () => {
     loading: routinesLoading,
     error: routinesError,
     execute: loadRoutines
-  } = useApi<any[]>(clientRoutinesAPI.getByClientId)
+  } = useApi<any>(clientRoutinesAPI.getByClientId)
 
   // Cargar datos al montar el componente
   useEffect(() => {
@@ -800,7 +797,7 @@ const ClientDetail: React.FC = () => {
                     </div>
                     <div className="space-y-4">
                       <h5 className="font-semibold">Mis Entrenamientos del día:</h5>
-                      {currentRoutine.routine?.workouts?.map((workout, index) => (
+                      {currentRoutine.routine?.workouts?.map((workout: any) => (
                         <Card key={workout.id} className="border-l-4 border-l-primary-500">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between mb-3">
@@ -826,7 +823,7 @@ const ClientDetail: React.FC = () => {
                               </div>
                             </div>
                             <div className="space-y-3">
-                              {workout.sets.map((exerciseSet) => {
+                              {workout.sets.map((exerciseSet: any) => {
                                 const exercise = exerciseSet.exercise
                                 return (
                                   <div key={exerciseSet.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -986,7 +983,6 @@ const ClientDetail: React.FC = () => {
           isOpen={isEditRoutinesModalOpen}
           onClose={handleCloseEditModal}
           clientId={clientId}
-          assignedRoutines={assignedRoutines}
           onRoutinesUpdated={() => {
             // Recargar las rutinas del cliente
             loadRoutines(parseInt(clientId.toString()))

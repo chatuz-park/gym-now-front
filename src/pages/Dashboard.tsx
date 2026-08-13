@@ -7,7 +7,6 @@ import { calculateProgress } from '../lib/utils'
 
 const Dashboard: React.FC = () => {
   const totalClients = mockClients.length
-  const activeGoals = mockGoals.filter(goal => !goal.isCompleted).length
   const completedGoals = mockGoals.filter(goal => goal.isCompleted).length
   const totalGoals = mockGoals.length
 

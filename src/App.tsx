@@ -11,7 +11,6 @@ import Exercises from './pages/Exercises'
 import Progress from './pages/Progress'
 import GlobalProgress from './pages/GlobalProgress'
 import Settings from './pages/Settings'
-import Profile from './pages/Profile'
 import Login from './pages/Login'
 
 const App: React.FC = () => {

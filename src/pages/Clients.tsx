@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Search, Plus, Phone, Mail, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, AlertCircle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2, Ruler } from 'lucide-react'
+import { Search, Plus, Phone, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2, Ruler } from 'lucide-react'
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
@@ -12,14 +12,9 @@ import RoutineEditor from '../components/RoutineEditor'
 import { formatDate, calculateAge } from '../lib/utils'
 import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
 import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
-import type { Client, Routine } from '../lib/api'
+import type { Client } from '../lib/api'
 import { 
-  DAYS_OF_WEEK, 
-  getSubscriptionStatus, 
-  getSubscriptionHighlightClass, 
-  getSubscriptionColor, 
-  getSubscriptionName,
-  formatSelectedDays 
+  DAYS_OF_WEEK
 } from '../definitions'
 import toast, { Toaster } from 'react-hot-toast'
 
@@ -55,8 +50,6 @@ const Clients: React.FC = () => {
   // Hook para cargar clientes desde la API
   const {
     data: clients,
-    loading: clientsLoading,
-    error: clientsError,
     execute: loadClients,
     refresh: refreshClients
   } = usePaginatedApi(clientsAPI.getAll)
@@ -90,8 +83,6 @@ const Clients: React.FC = () => {
   // Hook para cargar medidas previas del cliente
   const {
     data: clientProgress,
-    loading: progressLoading,
-    error: progressError,
     execute: loadClientProgress
   } = useApi(progressMetricsAPI.getClientProgress)
 
@@ -233,20 +224,9 @@ const Clients: React.FC = () => {
     }
   }
 
-  const getExpiringClients = () => {
-    return clients.results.filter(client => {
-      if (!client.subscription_start || !client.subscription_end) return false
-      
-      const status = getSubscriptionStatus(client.subscription_start, client.subscription_end)
-      return status.status === 'critical' || status.status === 'warning' || status.status === 'expired'
-    }).sort((a, b) => {
-      const statusA = getSubscriptionStatus(a.subscription_start!, a.subscription_end!)
-      const statusB = getSubscriptionStatus(b.subscription_start!, b.subscription_end!)
-      return statusA.days - statusB.days
-    })
-  }
-
   const filteredClients = getFilteredClients()
+  const renewalClient = clients.results.find(c => c.id.toString() === clientIdFromPath)
+  const assignRoutineClient = clients.results.find(c => c.id.toString() === searchParams.get('id'))
 
   // Filter options - counts are based on total counts from API
   const filterOptions = [
@@ -277,9 +257,9 @@ const Clients: React.FC = () => {
     setSearchParams(newParams)
   }
 
-  const getClientGoals = (clientId: string) => {
-    const client = clients.results.find(c => c.id.toString() === clientId)
-    return client?.goals || []
+  const getClientGoals = (clientId: string | number): string[] => {
+    const client = clients.results.find(c => c.id.toString() === clientId.toString())
+    return Array.isArray(client?.goals) ? client.goals.map(String) : []
   }
 
   const getSubscriptionColor = (type: string) => {
@@ -310,7 +290,7 @@ const Clients: React.FC = () => {
     setSearchParams(newParams)
   }
 
-  const handleRenewSubscription = (clientId: string) => {
+  const handleRenewSubscription = (clientId: string | number) => {
     // Navegar a /clients/:id?modal=renew-subscription
     navigate(`/clients/${clientId}?modal=renew-subscription`)
     // Set default renewal date to 6 months from now
@@ -336,22 +316,22 @@ const Clients: React.FC = () => {
     handleCloseRenewalModal()
   }
 
-  const handleViewDetails = (clientId: string) => {
+  const handleViewDetails = (clientId: string | number) => {
     navigate(`/clients/${clientId}?modal=edit-client`)
   }
 
-  const handleAssignRoutine = (clientId: string) => {
+  const handleAssignRoutine = (clientId: string | number) => {
     console.log('Opening routine assignment modal for client:', clientId)
     const newParams = new URLSearchParams(searchParams)
     newParams.set('modal', 'assign-routine')
-    newParams.set('id', clientId)
+    newParams.set('id', clientId.toString())
     setSearchParams(newParams)
   }
 
-  const handleEditRoutines = (clientId: string) => {
+  const handleEditRoutines = (clientId: string | number) => {
     const newParams = new URLSearchParams(searchParams)
     newParams.set('modal', 'edit-routines')
-    newParams.set('id', clientId)
+    newParams.set('id', clientId.toString())
     setSearchParams(newParams)
   }
 
@@ -578,7 +558,7 @@ const Clients: React.FC = () => {
     }).join(', ')
   }
 
-  const handleCreateClient = (clientData: any) => {
+  const handleCreateClient = () => {
     // El cliente ya fue creado en la API, solo necesitamos actualizar la lista
     refreshClients()
   }
@@ -592,7 +572,7 @@ const Clients: React.FC = () => {
     const client = clients.results.find(c => c.id.toString() === clientId)
     
     if (client?.assigned_routines) {
-      const assignedRoutine = client.assigned_routines.find(routine => {
+      const assignedRoutine = client.assigned_routines.find((routine: any) => {
         if (typeof routine === 'number') {
           return routine.toString() === routineId
         }
@@ -1155,7 +1135,7 @@ const Clients: React.FC = () => {
                 <p className="text-sm text-gray-600">
                   Renovar suscripción para{' '}
                   <span className="font-semibold">
-                    {clients.find(c => c.id === clientIdFromPath)?.name}
+                    {renewalClient?.name}
                   </span>
                 </p>
               </div>
@@ -1163,27 +1143,27 @@ const Clients: React.FC = () => {
               {/* Client Info */}
               <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                 <Avatar className="w-10 h-10">
-                  <AvatarImage src={clients.find(c => c.id === clientIdFromPath)?.profileImage} />
+                  <AvatarImage src={renewalClient?.profile_image} />
                   <AvatarFallback>
-                    {clients.find(c => c.id === clientIdFromPath)?.name.split(' ').map(n => n[0]).join('')}
+                    {renewalClient?.name.split(' ').map(n => n[0]).join('')}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium text-sm">
-                    {clients.find(c => c.id === clientIdFromPath)?.name}
+                    {renewalClient?.name}
                   </p>
                   <p className="text-xs text-gray-600">
-                    {(clients.find(c => c.id === clientIdFromPath) as any)?.subscription?.type || 'Sin suscripción'}
+                    {renewalClient?.subscription_type || 'Sin suscripción'}
                   </p>
                 </div>
               </div>
 
               {/* Current Subscription Info */}
-              {(clients.find(c => c.id === clientIdFromPath) as any)?.subscription?.endDate && (
+              {renewalClient?.subscription_end && (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm font-medium text-yellow-800 mb-1">Suscripción Actual</p>
                   <p className="text-xs text-yellow-700">
-                    Vence: {(clients.find(c => c.id === clientIdFromPath) as any)?.subscription?.endDate}
+                    Vence: {renewalClient.subscription_end}
                   </p>
                 </div>
               )}
@@ -1309,7 +1289,7 @@ const Clients: React.FC = () => {
                   <p className="text-sm text-gray-600">
                     Selecciona una rutina y los días de la semana para{' '}
                     <span className="font-semibold">
-                      {clients.find(c => c.id === searchParams.get('id'))?.name}
+                      {assignRoutineClient?.name}
                     </span>
                   </p>
                 </div>
@@ -1326,12 +1306,10 @@ const Clients: React.FC = () => {
                     <div className="text-center py-4">
                       <p className="text-sm text-red-600">Error al cargar rutinas: {routinesError}</p>
                     </div>
-                  ) : routines && routines.length > 0 ? (
+                  ) : routines.results.length > 0 ? (
                     <div className="space-y-2">
-                      {routines.map((routine) => {
-                        const clientId = searchParams.get('id')
-                        const client = clients.find(c => c.id.toString() === clientId)
-                        const isAlreadyAssigned = client?.assigned_routines?.some(assignedRoutine => {
+                      {routines.results.map((routine) => {
+                        const isAlreadyAssigned = assignRoutineClient?.assigned_routines?.some((assignedRoutine: any) => {
                           // Si assignedRoutine es un número, comparar directamente
                           if (typeof assignedRoutine === 'number') {
                             return assignedRoutine === routine.id
@@ -1346,11 +1324,11 @@ const Clients: React.FC = () => {
                             className={`transition-all ${
                               isAlreadyAssigned
                                 ? 'ring-1 ring-green-500 bg-green-50 cursor-not-allowed opacity-75'
-                                : selectedRoutineForAssignment === routine.id 
+                                : selectedRoutineForAssignment === routine.id.toString() 
                                 ? 'ring-2 ring-primary-500 bg-primary-50 cursor-pointer' 
                                 : 'hover:shadow-md cursor-pointer'
                             }`}
-                            onClick={() => !isAlreadyAssigned && handleSelectRoutine(routine.id)}
+                            onClick={() => !isAlreadyAssigned && handleSelectRoutine(routine.id.toString())}
                           >
                             <CardContent className="p-3">
                               <div className="space-y-2">

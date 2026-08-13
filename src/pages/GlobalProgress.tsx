@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { 
-  TrendingUp, Calendar, Target, BarChart3, Filter, Users, Search, Eye
+  TrendingUp, Calendar, Target, Filter, Search, Eye
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'

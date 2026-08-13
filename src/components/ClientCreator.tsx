@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { X, User, Mail, Phone, Calendar, CreditCard, Target, Users, Ruler, Scale, Activity, AlertCircle } from 'lucide-react'
+import { X, User, Mail, Phone, Calendar, Target, Ruler, Scale, Activity, AlertCircle } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Formik, Form, Field, ErrorMessage } from 'formik'
 import * as Yup from 'yup'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
@@ -11,14 +11,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { usePaginatedApi, useApi } from '../hooks/useApi'
 import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
 import type { Client, Routine } from '../lib/api'
-import { formatDate, calculateAge } from '../lib/utils'
+import { calculateAge } from '../lib/utils'
 import toast from 'react-hot-toast'
 import { 
   SUBSCRIPTION_TYPES, 
   AVAILABLE_GOALS,
   DAYS_OF_WEEK
 } from '../definitions'
-import type { SubscriptionType } from '../definitions'
 
 // Tipos para el formulario
 interface ClientFormValues {
@@ -323,8 +322,6 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   // Hooks para cargar datos desde la API
   const {
     data: routines,
-    loading: routinesLoading,
-    error: routinesError,
     execute: loadRoutines
   } = usePaginatedApi(routinesAPI.getAll)
 
@@ -343,10 +340,6 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   const {
     execute: createClientRoutine
   } = useApi(clientRoutinesAPI.create)
-
-  const {
-    execute: deleteClientRoutine
-  } = useApi(clientRoutinesAPI.delete)
 
   const {
     execute: createProgressMetrics
@@ -620,7 +613,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
             onSubmit={handleSubmit}
             enableReinitialize={true}
           >
-          {({ values, errors, touched, handleChange, handleBlur, setFieldValue, isSubmitting, isValid }) => {
+          {({ values, errors, touched, setFieldValue, isValid }) => {
             const handleDeleteRoutine = async (routineId: number, event: React.MouseEvent) => {
               event.stopPropagation() // Evitar que se active el onClick de la card
               
