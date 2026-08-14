@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || 'app.chatuzpark.store')
   .split(',')
-  .map(h => h.trim())
+  .map((h: string) => h.trim())
   .filter(Boolean)
 
 const host = process.env.HOST || '0.0.0.0'
