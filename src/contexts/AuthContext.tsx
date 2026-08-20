@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { authAPI } from '../lib/api'
+import { authAPI, clearAuthStorage, setOnSessionExpired } from '../lib/api'
 import { useNavigate } from 'react-router-dom'
 
 interface User {
@@ -38,6 +38,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true)
   const navigate = useNavigate()
 
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      setUser(null)
+      if (window.location.pathname !== '/login') {
+        navigate('/login', { replace: true })
+      }
+    })
+    return () => setOnSessionExpired(null)
+  }, [navigate])
+
   // Función para cargar el perfil del usuario desde la API
   const loadUserProfile = async () => {
     try {
@@ -57,11 +67,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } catch (error: any) {
       console.error('Error loading user profile:', error)
       
-      // Si es un error de autorización (401), cerrar sesión y redirigir al login
+      // El interceptor ya limpia la sesión en 401; no restaurar usuario en memoria
       if (error.response?.status === 401) {
-        console.log('Unauthorized access, logging out...')
-        await logout()
-        navigate('/login')
+        setUser(null)
         return null
       }
       
@@ -70,32 +78,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }
 
   useEffect(() => {
-    // Check if user is logged in on app start
     const token = localStorage.getItem('token')
-    if (token) {
-      // Intentar cargar el perfil del usuario desde la API
-      loadUserProfile()
-        .then(() => {
-          setIsLoading(false)
-        })
-        .catch((error) => {
-          console.error('Failed to load user profile:', error)
-          // Si falla la carga del perfil, usar datos almacenados como fallback
-          const storedUser = localStorage.getItem('user')
-          if (storedUser) {
-            try {
-              const userData = JSON.parse(storedUser)
-              setUser(userData)
-            } catch (error) {
-              console.error('Error parsing stored user data:', error)
-              localStorage.removeItem('user')
-            }
-          }
-          setIsLoading(false)
-        })
-    } else {
+    if (!token) {
       setIsLoading(false)
+      return
     }
+
+    loadUserProfile()
+      .catch((error) => {
+        console.error('Failed to load user profile:', error)
+        // Si el token ya no existe, la sesión expiró: no restaurar el usuario cacheado
+        if (!localStorage.getItem('token')) {
+          setUser(null)
+          return
+        }
+
+        const storedUser = localStorage.getItem('user')
+        if (storedUser) {
+          try {
+            setUser(JSON.parse(storedUser))
+          } catch (parseError) {
+            console.error('Error parsing stored user data:', parseError)
+            localStorage.removeItem('user')
+          }
+        }
+      })
+      .finally(() => {
+        setIsLoading(false)
+      })
   }, [])
 
   const login = async (username: string, password: string) => {
@@ -140,10 +150,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.error('Error al cerrar sesión:', error)
     } finally {
       setUser(null)
-      localStorage.removeItem('token')
-      localStorage.removeItem('refreshToken')
-      localStorage.removeItem('username')
-      localStorage.removeItem('user')
+      clearAuthStorage()
     }
   }
 

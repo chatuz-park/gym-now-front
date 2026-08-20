@@ -1,4 +1,33 @@
 import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
+
+const AUTH_STORAGE_KEYS = ['token', 'refreshToken', 'username', 'user'] as const
+
+export function clearAuthStorage() {
+  AUTH_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key))
+}
+
+type SessionExpiredHandler = () => void
+let onSessionExpired: SessionExpiredHandler | null = null
+
+export function setOnSessionExpired(handler: SessionExpiredHandler | null) {
+  onSessionExpired = handler
+}
+
+function expireSession() {
+  clearAuthStorage()
+  if (onSessionExpired) {
+    onSessionExpired()
+    return
+  }
+  if (window.location.pathname !== '/login') {
+    window.location.assign('/login')
+  }
+}
+
+function isAuthEndpoint(url?: string) {
+  return typeof url === 'string' && url.includes('/token/')
+}
 
 // Configuración base de axios
 const api = axios.create({
@@ -8,6 +37,38 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 })
+
+let refreshInFlight: Promise<string> | null = null
+
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = localStorage.getItem('refreshToken')
+  if (!refreshToken) {
+    throw new Error('No refresh token available')
+  }
+
+  // Usar axios directo para no reentrar al interceptor de 401
+  const response = await axios.post<{ access: string }>(
+    `${api.defaults.baseURL}/token/refresh/`,
+    { refresh: refreshToken },
+    {
+      timeout: 10000,
+      headers: { 'Content-Type': 'application/json' },
+    }
+  )
+
+  const access = response.data.access
+  localStorage.setItem('token', access)
+  return access
+}
+
+function getRefreshedAccessToken(): Promise<string> {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshAccessToken().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
 
 // Interceptor para agregar el token de autenticación
 api.interceptors.request.use(
@@ -29,39 +90,32 @@ api.interceptors.response.use(
     return response
   },
   async (error) => {
-    const originalRequest = error.config
+    const originalRequest = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
 
-    // Manejar errores de autenticación
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Login y refresh no deben disparar otro intento de renovación
+    if (error.response?.status === 401 && originalRequest && !isAuthEndpoint(originalRequest.url)) {
+      if (originalRequest._retry || !localStorage.getItem('refreshToken')) {
+        expireSession()
+        return Promise.reject(error)
+      }
+
       originalRequest._retry = true
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken')
-        if (refreshToken) {
-          const response = await api.post('/token/refresh/', {
-            refresh: refreshToken
-          })
-          
-          const { access } = response.data
-          localStorage.setItem('token', access)
-          
-          originalRequest.headers.Authorization = `Bearer ${access}`
-          return api(originalRequest)
-        }
-      } catch (refreshError) {
-        // Si el refresh token también expiró, redirigir a login
-        localStorage.removeItem('token')
-        localStorage.removeItem('refreshToken')
-        localStorage.removeItem('user')
-        window.location.href = '/login'
+        const access = await getRefreshedAccessToken()
+        originalRequest.headers.Authorization = `Bearer ${access}`
+        return api(originalRequest)
+      } catch {
+        expireSession()
+        return Promise.reject(error)
       }
     }
-    
+
     // Manejar errores de red
     if (error.code === 'ECONNABORTED') {
       console.error('Timeout de la petición')
     }
-    
+
     return Promise.reject(error)
   }
 )
@@ -202,18 +256,11 @@ export const authAPI = {
   },
 
   refreshToken: async () => {
-    const refreshToken = localStorage.getItem('refreshToken')
-    if (!refreshToken) {
-      throw new Error('No refresh token available')
-    }
-    
-    const response = await api.post<{ access: string }>('/token/refresh/', {
-      refresh: refreshToken
-    })
+    const token = await getRefreshedAccessToken()
     return {
       success: true,
       data: {
-        token: response.data.access
+        token,
       }
     }
   },
