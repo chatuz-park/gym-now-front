@@ -15,6 +15,7 @@ interface ProgressData {
   weight?: number
   body_fat?: number
   muscle_mass?: number
+  sessions?: number
   chest?: number
   waist?: number
   biceps?: number
@@ -30,18 +31,21 @@ interface ProgressChartProps {
   data: ProgressData[]
   selectedMetrics: string[]
   title?: string
+  height?: number
 }
 
 const ProgressChart: React.FC<ProgressChartProps> = ({ 
   data, 
   selectedMetrics, 
-  title = "Progreso de Medidas" 
+  title,
+  height = 400,
 }) => {
   // Colores para las diferentes métricas
   const colors = {
     weight: '#8884d8',
     body_fat: '#ff7300',
     muscle_mass: '#82ca9d',
+    sessions: '#6366f1',
     chest: '#ffc658',
     waist: '#ff6b6b',
     biceps: '#4ecdc4',
@@ -105,9 +109,9 @@ const ProgressChart: React.FC<ProgressChartProps> = ({
 
   return (
     <div className="w-full">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
+      {title ? <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3> : null}
       <div className="bg-white p-4 rounded-lg border border-gray-200">
-        <ResponsiveContainer width="100%" height={400}>
+        <ResponsiveContainer width="100%" height={height}>
           <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis 
@@ -158,7 +162,8 @@ const getMetricDisplayName = (metric: string): string => {
     calves: 'Pantorrillas (cm)',
     neck: 'Cuello (cm)',
     shoulders: 'Hombros (cm)',
-    hips: 'Caderas (cm)'
+    hips: 'Caderas (cm)',
+    sessions: 'Sesiones',
   }
   return names[metric] || metric
 }

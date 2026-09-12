@@ -17,6 +17,10 @@ export interface PlansListQuery {
 }
 
 export const queryKeys = {
+  dashboard: {
+    all: ['dashboard'] as const,
+    summary: () => [...queryKeys.dashboard.all, 'summary'] as const,
+  },
   clients: {
     all: ['clients'] as const,
     lists: () => [...queryKeys.clients.all, 'list'] as const,

@@ -34,6 +34,10 @@ export function formatTime(date: Date | string): string {
   }).format(dateObj)
 }
 
+export function formatPrice(price: number): string {
+  return `$${price.toLocaleString('es-CO')}`
+}
+
 export function calculateProgress(current: number, target: number): number {
   if (target === 0) return 0
   return Math.min((current / target) * 100, 100)

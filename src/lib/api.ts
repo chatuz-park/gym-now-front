@@ -326,6 +326,83 @@ export interface CompleteWorkoutInput {
   rating?: number
 }
 
+export interface DashboardSummary {
+  clients_count: number
+  active_subscriptions: number
+  expired_subscriptions: number
+  expiring_7_days: number
+  expiring_30_days: number
+  estimated_monthly_revenue: number
+  revenue_at_risk_30_days: number
+  new_clients_7_days: number
+  new_clients_30_days: number
+  active_routines: number
+  clients_with_routine: number
+  clients_without_routine: number
+  sessions_7_days: number
+  active_clients_7_days: number
+  engagement_7_days: number
+  clients_without_metrics_30_days: number
+  completed_goals: number
+  goals_count: number
+  goals_overdue: number
+  goals_on_track: number
+  average_progress: number
+  plan_mix: Array<{
+    slug: string | null
+    name: string
+    count: number
+    price: number
+  }>
+  expiring_clients: Array<{
+    id: number
+    name: string
+    plan_name: string
+    subscription_end: string
+    price: number
+  }>
+  inactive_subscribers: Array<{
+    id: number
+    name: string
+    plan_name: string
+  }>
+  body_trend: Array<{
+    date: string
+    weight?: number | null
+    body_fat?: number | null
+    muscle_mass?: number | null
+  }>
+  sessions_trend: Array<{
+    date: string
+    sessions: number
+  }>
+  recent_metrics: Array<{
+    id: number
+    client_id: number
+    client_name: string
+    weight: number
+    date: string
+  }>
+  recent_sessions: Array<{
+    id: number
+    client_id: number | null
+    client_name: string
+    workout_name: string
+    started_at: string | null
+    completed_at: string
+  }>
+  recent_goals: Array<{
+    id: number
+    client_name: string
+    title: string
+    current_value: number
+    target_value: number
+    unit: string
+    deadline?: string
+    is_completed?: boolean
+  }>
+}
+
 export interface ManagedUser {
   id: number
   username: string
@@ -437,6 +514,13 @@ export const usersAPI = {
 
   updateRole: async (id: number, role: UserRole) => {
     const response = await api.patch<ManagedUser>(`/users/${id}/`, { role })
+    return response.data
+  },
+}
+
+export const dashboardAPI = {
+  getSummary: async () => {
+    const response = await api.get<DashboardSummary>('/dashboard/')
     return response.data
   },
 }

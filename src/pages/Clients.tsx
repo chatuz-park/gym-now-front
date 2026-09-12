@@ -662,8 +662,8 @@ const Clients: React.FC = () => {
       </div>
 
       {/* Search and Add */}
-      <div className="flex space-x-3">
-        <div className="relative flex-1">
+      <div className="flex gap-3">
+        <div className="relative min-w-0 flex-1">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
           <Input
             placeholder="Buscar clientes..."
@@ -673,7 +673,7 @@ const Clients: React.FC = () => {
           />
         </div>
         <Button 
-          className="bg-primary-600 hover:bg-primary-700"
+          className="shrink-0 bg-primary-600 hover:bg-primary-700"
           onClick={openClientCreator}
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -829,22 +829,22 @@ const Clients: React.FC = () => {
                           : 'bg-yellow-100 border-yellow-300'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="w-8 h-8">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Avatar className="h-8 w-8 shrink-0">
                             <AvatarImage src={client.profile_image} alt={client.name} />
                             <AvatarFallback className="text-xs">
                               {client.name.split(' ').map(n => n[0]).join('')}
                             </AvatarFallback>
                           </Avatar>
-                          <div>
-                            <p className="font-medium text-gray-900">{client.name}</p>
-                            <p className="text-sm text-gray-600">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-gray-900">{client.name}</p>
+                            <p className="truncate text-sm text-gray-600">
                               {getSubscriptionName(client.subscription_type || 'standard', client.plan?.name)} - Vence {client.subscription_end}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="shrink-0 text-right">
                           <Badge 
                             variant="outline" 
                             className={
@@ -902,218 +902,213 @@ const Clients: React.FC = () => {
             return (
               <Card 
                 key={client.id} 
-                className={`transition-all hover:shadow-md ${
+                className={`overflow-hidden transition-all hover:shadow-md ${
                   subscriptionStatus ? getSubscriptionHighlightClass(subscriptionStatus.status) : ''
                 }`}
               >
                 <CardContent className="p-4">
-                  <div className="flex items-start space-x-4">
-                    <Avatar className="w-12 h-12">
-                      <AvatarImage src={client.profile_image} alt={client.name} />
-                      <AvatarFallback>
-                        {client.name.split(' ').map(n => n[0]).join('')}
-                      </AvatarFallback>
-                    </Avatar>
-                    
-                    <div className="flex-1 space-y-3">
-                      {/* Header Row */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{client.name}</h3>
-                          <p className="text-sm text-gray-600">{client.email}</p>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          {client.birth_date && (
-                            <Badge variant="secondary" className="text-xs">
-                              {calculateAge(client.birth_date)} años
-                            </Badge>
-                          )}
-                          {client.subscription_type && (
-                            <Badge 
-                              variant="outline" 
-                              className={`text-xs ${getSubscriptionColor(client.subscription_type || '', client.plan?.color)}`}
-                            >
-                              {getSubscriptionName(client.subscription_type || '', client.plan?.name)}
-                            </Badge>
-                          )}
-                          {subscriptionStatus && (
-                            <Badge 
-                              variant="outline" 
-                              className={
-                                subscriptionStatus.status === 'expired' || subscriptionStatus.status === 'critical'
-                                  ? 'border-red-300 text-red-700 bg-red-100 text-xs'
-                                  : subscriptionStatus.status === 'warning' || subscriptionStatus.status === 'halfway'
-                                  ? 'border-yellow-300 text-yellow-700 bg-yellow-100 text-xs'
-                                  : 'text-xs'
-                              }
-                            >
-                              {subscriptionStatus.status === 'expired' 
-                                ? 'Vencida' 
-                                : subscriptionStatus.status === 'critical'
-                                ? `${subscriptionStatus.days} días`
-                                : subscriptionStatus.status === 'warning'
-                                ? `${subscriptionStatus.days} días`
-                                : subscriptionStatus.status === 'halfway'
-                                ? 'Más de 50%'
-                                : 'Activa'
-                              }
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Avatar className="h-12 w-12 shrink-0">
+                        <AvatarImage src={client.profile_image} alt={client.name} />
+                        <AvatarFallback>
+                          {client.name.split(' ').map(n => n[0]).join('')}
+                        </AvatarFallback>
+                      </Avatar>
                       
-                      {/* Contact & Physical Info */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600">
-                        <div className="flex items-center space-x-2">
-                          <Phone className="w-4 h-4" />
-                          <span>{client.phone || 'No especificado'}</span>
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h3 className="truncate font-semibold text-gray-900">{client.name}</h3>
+                            <p className="truncate text-sm text-gray-600">{client.email}</p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {client.birth_date && (
+                              <Badge variant="secondary" className="text-xs">
+                                {calculateAge(client.birth_date)} años
+                              </Badge>
+                            )}
+                            {client.subscription_type && (
+                              <Badge 
+                                variant="outline" 
+                                className={`text-xs ${getSubscriptionColor(client.subscription_type || '', client.plan?.color)}`}
+                              >
+                                {getSubscriptionName(client.subscription_type || '', client.plan?.name)}
+                              </Badge>
+                            )}
+                            {subscriptionStatus && (
+                              <Badge 
+                                variant="outline" 
+                                className={
+                                  subscriptionStatus.status === 'expired' || subscriptionStatus.status === 'critical'
+                                    ? 'border-red-300 text-red-700 bg-red-100 text-xs'
+                                    : subscriptionStatus.status === 'warning' || subscriptionStatus.status === 'halfway'
+                                    ? 'border-yellow-300 text-yellow-700 bg-yellow-100 text-xs'
+                                    : 'text-xs'
+                                }
+                              >
+                                {subscriptionStatus.status === 'expired' 
+                                  ? 'Vencida' 
+                                  : subscriptionStatus.status === 'critical'
+                                  ? `${subscriptionStatus.days} días`
+                                  : subscriptionStatus.status === 'warning'
+                                  ? `${subscriptionStatus.days} días`
+                                  : subscriptionStatus.status === 'halfway'
+                                  ? 'Más de 50%'
+                                  : 'Activa'
+                                }
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                         
-                        <div className="flex items-center space-x-2">
-                          <Calendar className="w-4 h-4" />
-                          <span>Miembro desde {formatDate(client.join_date)}</span>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2">
-                          <Target className="w-4 h-4" />
-                          <span>
-                            {client.weight > 0 && client.height > 0 
-                              ? `${client.weight}kg / ${client.height}cm`
-                              : 'Medidas no especificadas'
-                            }
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {/* Goals & Routines */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex flex-wrap gap-1">
-                          {getClientGoals(client.id).slice(0, 3).map((goal, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {goal}
-                            </Badge>
-                          ))}
-                          {getClientGoals(client.id).length > 3 && (
-                            <Badge variant="secondary" className="text-xs">
-                              +{getClientGoals(client.id).length - 3} más
-                            </Badge>
-                          )}
-                        </div>
-                        
-                        {client.assigned_routines?.length > 0 && (
-                          <div className="flex items-center space-x-1">
-                            <Clock className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">
-                              {client.assigned_routines.length} rutina{client.assigned_routines.length > 1 ? 's' : ''}
+                        <div className="grid grid-cols-1 gap-2 text-sm text-gray-600 md:grid-cols-3 md:gap-4">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Phone className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{client.phone || 'No especificado'}</span>
+                          </div>
+                          
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Calendar className="h-4 w-4 shrink-0" />
+                            <span className="truncate">Miembro desde {formatDate(client.join_date)}</span>
+                          </div>
+                          
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Target className="h-4 w-4 shrink-0" />
+                            <span className="truncate">
+                              {client.weight > 0 && client.height > 0 
+                                ? `${client.weight}kg / ${client.height}cm`
+                                : 'Medidas no especificadas'
+                              }
                             </span>
                           </div>
-                        )}
-                      </div>
-
-                      {/* Additional Info */}
-                      <div className="pt-2 border-t border-gray-100">
-                        <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                          {!client.notes && (
-                            <span>📝 Notas disponibles</span>
-                          )}
-                          {client.notes && (
-                            <span>📝 {client.notes}</span>
-                          )}
-                          {!client.emergency_contact && (
-                            <span>🚨 Contacto de emergencia</span>
-                          )}
-                          {client.emergency_contact && (
-                            <span>🚨 {client.emergency_contact} </span>
-                          )}
-                          {!client.medical_conditions && (
-                            <span>🏥 Condiciones médicas</span>
-                          )}
-                          {client.medical_conditions && (
-                            <span>🏥 {client.medical_conditions}</span>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap gap-1">
+                            {getClientGoals(client.id).slice(0, 3).map((goal, index) => (
+                              <Badge key={index} variant="outline" className="text-xs">
+                                {goal}
+                              </Badge>
+                            ))}
+                            {getClientGoals(client.id).length > 3 && (
+                              <Badge variant="secondary" className="text-xs">
+                                +{getClientGoals(client.id).length - 3} más
+                              </Badge>
+                            )}
+                          </div>
+                          
+                          {client.assigned_routines?.length > 0 && (
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Clock className="h-4 w-4 text-gray-500" />
+                              <span className="text-sm text-gray-600">
+                                {client.assigned_routines.length} rutina{client.assigned_routines.length > 1 ? 's' : ''}
+                              </span>
+                            </div>
                           )}
                         </div>
-                      </div>
-                      
 
-
-                      {/* Action Buttons */}
-                      <div className="flex space-x-2 pt-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleRenewSubscription(client)
-                          }}
-                          className="flex-1"
-                        >
-                          <RefreshCw className="w-4 h-4 mr-1" />
-                          Renovar
-                        </Button>
-                        <Button 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleViewDetails(client.id)
-                          }}
-                          className="flex-1 bg-primary-600 hover:bg-primary-700"
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Ver Detalle
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleAddMeasurements(client)
-                          }}
-                          className="flex-1"
-                        >
-                          <Ruler className="w-4 h-4 mr-1" />
-                          Agregar Medidas
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleAssignRoutine(client.id)
-                          }}
-                          className="flex-1"
-                        >
-                          <Target className="w-4 h-4 mr-1" />
-                          Asignar Rutina
-                        </Button>
-                        {client.assigned_routines?.length > 0 && (
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleEditRoutines(client.id)
-                            }}
-                            className="flex-1"
-                          >
-                            <Edit className="w-4 h-4 mr-1" />
-                            Editar Rutinas
-                          </Button>
-                        )}
-                        {canRemoveClient && (
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteClient(client)
-                          }}
-                          className="flex-1 text-red-600 border-red-200 hover:bg-red-50"
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" />
-                          Eliminar
-                        </Button>
-                        )}
+                        <div className="border-t border-gray-100 pt-2">
+                          <div className="flex flex-wrap gap-2 break-words text-xs text-gray-500">
+                            {!client.notes && (
+                              <span>📝 Notas disponibles</span>
+                            )}
+                            {client.notes && (
+                              <span className="min-w-0 break-words">📝 {client.notes}</span>
+                            )}
+                            {!client.emergency_contact && (
+                              <span>🚨 Contacto de emergencia</span>
+                            )}
+                            {client.emergency_contact && (
+                              <span className="min-w-0 break-words">🚨 {client.emergency_contact}</span>
+                            )}
+                            {!client.medical_conditions && (
+                              <span>🏥 Condiciones médicas</span>
+                            )}
+                            {client.medical_conditions && (
+                              <span className="min-w-0 break-words">🏥 {client.medical_conditions}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1 sm:flex sm:flex-wrap">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRenewSubscription(client)
+                        }}
+                        className="h-auto min-h-9 min-w-0 w-full whitespace-normal px-2 sm:flex-1 sm:px-3"
+                      >
+                        <RefreshCw className="mr-1 h-4 w-4 shrink-0" />
+                        Renovar
+                      </Button>
+                      <Button 
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleViewDetails(client.id)
+                        }}
+                        className="h-auto min-h-9 min-w-0 w-full whitespace-normal bg-primary-600 px-2 hover:bg-primary-700 sm:flex-1 sm:px-3"
+                      >
+                        <Eye className="mr-1 h-4 w-4 shrink-0" />
+                        Ver Detalle
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAddMeasurements(client)
+                        }}
+                        className="h-auto min-h-9 min-w-0 w-full whitespace-normal px-2 sm:flex-1 sm:px-3"
+                      >
+                        <Ruler className="mr-1 h-4 w-4 shrink-0" />
+                        Agregar Medidas
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleAssignRoutine(client.id)
+                        }}
+                        className="h-auto min-h-9 min-w-0 w-full whitespace-normal px-2 sm:flex-1 sm:px-3"
+                      >
+                        <Target className="mr-1 h-4 w-4 shrink-0" />
+                        Asignar Rutina
+                      </Button>
+                      {client.assigned_routines?.length > 0 && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleEditRoutines(client.id)
+                          }}
+                          className="h-auto min-h-9 min-w-0 w-full whitespace-normal px-2 sm:flex-1 sm:px-3"
+                        >
+                          <Edit className="mr-1 h-4 w-4 shrink-0" />
+                          Editar Rutinas
+                        </Button>
+                      )}
+                      {canRemoveClient && (
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteClient(client)
+                        }}
+                        className="h-auto min-h-9 min-w-0 w-full whitespace-normal border-red-200 px-2 text-red-600 hover:bg-red-50 sm:flex-1 sm:px-3"
+                      >
+                        <Trash2 className="mr-1 h-4 w-4 shrink-0" />
+                        Eliminar
+                      </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>

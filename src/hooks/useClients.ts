@@ -58,6 +58,7 @@ export function useCreateClientMutation() {
     mutationFn: (data: Partial<Client>) => clientsAPI.create(data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.clients.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all })
     },
   })
 }
@@ -94,6 +95,7 @@ export function useDeleteClientMutation() {
     mutationFn: (id: number) => clientsAPI.delete(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.clients.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all })
     },
   })
 }

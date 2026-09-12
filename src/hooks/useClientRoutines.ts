@@ -27,6 +27,7 @@ function invalidateClientRoutineCaches(
 ) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.clientRoutines.all })
   void queryClient.invalidateQueries({ queryKey: queryKeys.clients.all })
+  void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all })
   if (clientId) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.clientRoutines.byClient(clientId) })
     void queryClient.invalidateQueries({ queryKey: queryKeys.clients.detail(clientId) })
@@ -75,6 +76,7 @@ export function useCompleteWorkoutMutation() {
         queryKey: queryKeys.clientRoutines.progress(variables.id),
       })
       void queryClient.invalidateQueries({ queryKey: queryKeys.routineProgress.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all })
     },
   })
 }

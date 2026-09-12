@@ -43,6 +43,7 @@ export function useCreateProgressMetricsMutation() {
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.progress.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.clients.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all })
       if (variables.client_id) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.clients.progress(variables.client_id),
