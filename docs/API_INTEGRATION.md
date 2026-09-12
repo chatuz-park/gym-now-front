@@ -271,14 +271,36 @@ interface ProgressMetrics {
 }
 ```
 
+## 🔐 RBAC (contrato Swagger)
+
+Documentación completa de la implementación en el front: [RBAC.md](RBAC.md). El backend está en `gym-now-back/docs/rbac.md`.
+
+El spec en `docs/swagger.json` (copia de `gym-now-back/swagger.json`) declara:
+
+- Autenticación `Bearer` JWT (`Authorization: Bearer <token>`)
+- `UserProfile.role`: `client | trainer | guest | owner`
+- `x-required-roles` por operación
+- `401` sin token, `403` si el rol no alcanza
+
+Matriz:
+
+| Rol | Acceso |
+|-----|--------|
+| `owner` | Todo, incluido `DELETE /clients/{id}/` y credenciales |
+| `trainer` | Gestión operativa (clientes, catálogo, rutinas, progreso). No borra clientes ni ve credenciales |
+| `client` / `guest` | Solo datos propios (`/clients/me/`, rutinas/progreso propios). Lectura de catálogo |
+
+El access token incluye claims `role` y `user_id`. La fuente de verdad de la UI sigue siendo `GET /user-profile/`.
+
 ## 🔒 Manejo de Autenticación
 
 ### Flujo de Login
 1. Usuario ingresa credenciales
 2. Se envía petición a `/token/`
 3. Se reciben `access` y `refresh` tokens
-4. Se guardan en localStorage
-5. Se configura el interceptor de axios
+4. Se pide `GET /user-profile/` (y `GET /clients/me/` si el rol es miembro)
+5. Se guardan tokens y usuario en localStorage
+6. Se configura el interceptor de axios
 
 ### Refresh Automático
 - El interceptor detecta errores 401

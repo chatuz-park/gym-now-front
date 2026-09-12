@@ -1,5 +1,6 @@
-import axios from 'axios'
+import axios, { isAxiosError } from 'axios'
 import type { InternalAxiosRequestConfig } from 'axios'
+import type { UserRole } from './rbac'
 
 const AUTH_STORAGE_KEYS = ['token', 'refreshToken', 'username', 'user'] as const
 
@@ -120,7 +121,69 @@ api.interceptors.response.use(
   }
 )
 
-// Tipos basados en el swagger
+export type SubscriptionType = string
+export type PlanColor = 'blue' | 'purple' | 'green' | 'orange' | 'red' | 'gray'
+
+export interface Plan {
+  id: number
+  name: string
+  slug: string
+  description: string
+  price: number
+  duration_days: number
+  features: string[]
+  color: PlanColor
+  is_active: boolean
+  subscribers_count: number
+}
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced'
+export type WorkoutCategory = 'strength' | 'cardio' | 'flexibility' | 'mixed'
+export type RoutineFrequency = 'daily' | 'weekly' | 'custom'
+export type GoalCategory = 'weight' | 'strength' | 'endurance' | 'flexibility' | 'custom'
+
+export interface BodyMeasurements {
+  chest?: number
+  waist?: number
+  biceps?: number
+  forearms?: number
+  thighs?: number
+  calves?: number
+  neck?: number
+  shoulders?: number
+  hips?: number
+}
+
+export interface AssignedRoutineRef {
+  id?: number
+  routine_id?: number
+  routine?: { id: number; name?: string }
+  assigned_days?: string[] | Record<string, boolean>
+}
+
+export function normalizeAssignedDays(
+  days?: string[] | Record<string, boolean>
+): string[] {
+  if (!days) return []
+  if (Array.isArray(days)) return days
+  return Object.keys(days).filter((key) => Boolean(days[key]))
+}
+
+export function unwrapList<T>(data: T[] | { results?: T[] } | undefined | null): T[] {
+  if (Array.isArray(data)) return data
+  if (data && typeof data === 'object' && Array.isArray(data.results)) return data.results
+  return []
+}
+
+export type AssignedRoutine = Routine | AssignedRoutineRef | number
+
+export function getAssignedRoutineId(routine: AssignedRoutine): number | undefined {
+  if (typeof routine === 'number') return routine
+  if ('routine' in routine && routine.routine?.id) return routine.routine.id
+  if ('routine_id' in routine && routine.routine_id) return routine.routine_id
+  if ('id' in routine && typeof routine.id === 'number') return routine.id
+  return undefined
+}
+
 export interface Client {
   id: number
   name: string
@@ -129,26 +192,27 @@ export interface Client {
   birth_date?: string
   weight: number
   height: number
-  goals: any
+  goals: Array<string | { title?: string }>
   join_date: string
   profile_image?: string
-  subscription_type?: 'standard' | 'premium' | 'personalized'
+  subscription_type?: SubscriptionType
   subscription_start?: string
   subscription_end?: string
+  plan?: Plan | null
   notes?: string
   emergency_contact?: string
   medical_conditions?: string
-  assigned_routines: Routine[]
+  assigned_routines: AssignedRoutine[]
 }
 
 export interface Exercise {
   id: number
   name: string
   description: string
-  muscle_groups: any
-  equipment: any
-  difficulty: 'beginner' | 'intermediate' | 'advanced'
-  instructions: any
+  muscle_groups: string[]
+  equipment: string[]
+  difficulty: Difficulty
+  instructions: string[]
   video_url?: string
   image_url?: string
 }
@@ -169,8 +233,8 @@ export interface Workout {
   name: string
   description: string
   estimated_duration: number
-  difficulty: 'beginner' | 'intermediate' | 'advanced'
-  category: 'strength' | 'cardio' | 'flexibility' | 'mixed'
+  difficulty: Difficulty
+  category: WorkoutCategory
 }
 
 export interface Routine {
@@ -178,10 +242,31 @@ export interface Routine {
   workouts: Workout[]
   name: string
   description: string
-  frequency: 'daily' | 'weekly' | 'custom'
+  frequency: RoutineFrequency
   days_per_week: number
   duration: number
-  scheduled_days?: any
+  scheduled_days?: string[]
+}
+
+export interface WorkoutSetInput {
+  id?: number
+  exercise?: number | Exercise
+  exercise_id?: number
+  reps?: number
+  weight?: number
+  rest_time?: number
+  completed?: boolean
+}
+
+export type WorkoutInput = Omit<Workout, 'id' | 'sets'> & {
+  id?: number
+  sets?: WorkoutSetInput[]
+}
+
+export type RoutineInput = Omit<Routine, 'id' | 'workouts'> & {
+  id?: number
+  workouts?: WorkoutInput[]
+  scheduled_days?: string[] | Record<string, boolean>
 }
 
 export interface ClientRoutine {
@@ -193,7 +278,7 @@ export interface ClientRoutine {
   start_date: string
   end_date?: string
   is_active: boolean
-  assigned_days: any
+  assigned_days: string[] | Record<string, boolean>
 }
 
 export interface Goal {
@@ -207,7 +292,7 @@ export interface Goal {
   unit: string
   deadline: string
   is_completed: boolean
-  category: 'weight' | 'strength' | 'endurance' | 'flexibility' | 'custom'
+  category: GoalCategory
 }
 
 export interface ProgressMetrics {
@@ -218,8 +303,8 @@ export interface ProgressMetrics {
   weight: number
   body_fat?: number
   muscle_mass?: number
-  measurements: any
-  photos?: any
+  measurements: BodyMeasurements
+  photos?: string[]
 }
 
 export interface RoutineProgress {
@@ -228,9 +313,30 @@ export interface RoutineProgress {
   client_routine_id: number
   workout: Workout
   workout_id: number
+  started_at?: string | null
   completed_at: string
   notes?: string
   rating?: number
+}
+
+export interface CompleteWorkoutInput {
+  workout_id: number
+  started_at?: string
+  notes?: string
+  rating?: number
+}
+
+export interface ManagedUser {
+  id: number
+  username: string
+  email?: string
+  first_name?: string
+  last_name?: string
+  role: UserRole
+  client_id: number | null
+  is_last_owner: boolean
+  date_joined: string
+  last_login?: string | null
 }
 
 // Funciones de autenticación
@@ -280,6 +386,61 @@ export const authAPI = {
   },
 }
 
+export const plansAPI = {
+  getAll: async (params?: { search?: string; ordering?: string; is_active?: boolean }) => {
+    const response = await api.get<
+      Plan[] | { count: number; next: string | null; previous: string | null; results: Plan[] }
+    >('/plans/', { params })
+    const data = response.data
+    if (data && typeof data === 'object' && 'results' in data) {
+      return data.results
+    }
+    return data as Plan[]
+  },
+
+  getById: async (id: number) => {
+    const response = await api.get<Plan>(`/plans/${id}/`)
+    return response.data
+  },
+
+  create: async (data: Partial<Plan>) => {
+    const response = await api.post<Plan>('/plans/', data)
+    return response.data
+  },
+
+  update: async (id: number, data: Partial<Plan>) => {
+    const response = await api.put<Plan>(`/plans/${id}/`, data)
+    return response.data
+  },
+
+  patch: async (id: number, data: Partial<Plan>) => {
+    const response = await api.patch<Plan>(`/plans/${id}/`, data)
+    return response.data
+  },
+
+  delete: async (id: number) => {
+    await api.delete(`/plans/${id}/`)
+  },
+}
+
+export const usersAPI = {
+  getAll: async (params?: { search?: string; role?: string; ordering?: string }) => {
+    const response = await api.get<
+      ManagedUser[] | { count: number; next: string | null; previous: string | null; results: ManagedUser[] }
+    >('/users/', { params })
+    const data = response.data
+    if (data && typeof data === 'object' && 'results' in data) {
+      return data.results
+    }
+    return data as ManagedUser[]
+  },
+
+  updateRole: async (id: number, role: UserRole) => {
+    const response = await api.patch<ManagedUser>(`/users/${id}/`, { role })
+    return response.data
+  },
+}
+
 // Funciones para clientes
 export const clientsAPI = {
   getAll: async (params?: { search?: string; ordering?: string }) => {
@@ -323,7 +484,7 @@ export const clientsAPI = {
   },
 
   getRoutines: async (clientId: number) => {
-    const response = await api.get<Routine[]>(`/clients/${clientId}/routines/`)
+    const response = await api.get<ClientRoutine[]>(`/clients/${clientId}/routines/`)
     return response.data
   },
 
@@ -353,7 +514,7 @@ export const clientsAPI = {
 
 // Funciones para ejercicios
 export const exercisesAPI = {
-  getAll: async (params?: { search?: string; ordering?: string }) => {
+  getAll: async (params?: { search?: string; ordering?: string; filter?: string }) => {
     const response = await api.get<Exercise[] | { count: number; next: string | null; previous: string | null; results: Exercise[] }>('/exercises/', { params })
     const data = response.data
     
@@ -399,6 +560,22 @@ export const exercisesAPI = {
     const response = await api.get<Exercise[]>('/exercises/by_muscle_group/', { params })
     return response.data
   },
+
+  uploadImage: async (exerciseId: number, file: File) => {
+    const formData = new FormData()
+    formData.append('image', file)
+
+    const response = await api.post<{ image_url: string; message: string }>(
+      `/exercises/${exerciseId}/upload_image/`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    )
+    return response.data
+  },
 }
 
 // Funciones para rutinas
@@ -413,17 +590,17 @@ export const routinesAPI = {
     return response.data
   },
 
-  create: async (routineData: Partial<Routine>) => {
+  create: async (routineData: Partial<RoutineInput>) => {
     const response = await api.post<Routine>('/routines/', routineData)
     return response.data
   },
 
-  update: async (id: number, routineData: Partial<Routine>) => {
+  update: async (id: number, routineData: Partial<RoutineInput>) => {
     const response = await api.put<Routine>(`/routines/${id}/`, routineData)
     return response.data
   },
 
-  patch: async (id: number, routineData: Partial<Routine>) => {
+  patch: async (id: number, routineData: Partial<RoutineInput>) => {
     const response = await api.patch<Routine>(`/routines/${id}/`, routineData)
     return response.data
   },
@@ -447,8 +624,10 @@ export const routinesAPI = {
 // Funciones para rutinas de clientes
 export const clientRoutinesAPI = {
   getAll: async (params?: { ordering?: string }) => {
-    const response = await api.get<ClientRoutine[]>('/client-routines/', { params })
-    return response.data
+    const response = await api.get<
+      ClientRoutine[] | { results: ClientRoutine[] }
+    >('/client-routines/', { params })
+    return unwrapList(response.data)
   },
 
   getById: async (id: number) => {
@@ -476,27 +655,32 @@ export const clientRoutinesAPI = {
   },
 
   // Endpoints específicos de rutinas de clientes
-  completeWorkout: async (id: number, data: any) => {
-    const response = await api.post<ClientRoutine>(`/client-routines/${id}/complete_workout/`, data)
+  completeWorkout: async (id: number, data: CompleteWorkoutInput) => {
+    const response = await api.post<RoutineProgress>(`/client-routines/${id}/complete_workout/`, data)
     return response.data
   },
 
   getProgress: async (id: number) => {
-    const response = await api.get<ClientRoutine>(`/client-routines/${id}/progress/`)
+    const response = await api.get<RoutineProgress[]>(`/client-routines/${id}/progress/`)
     return response.data
   },
 
   getByClientId: async (clientId: number) => {
-    const response = await api.get<ClientRoutine[]>(`/client-routines/?client_id=${clientId}`)
-    return response.data
+    const response = await api.get<
+      ClientRoutine[] | { count: number; next: string | null; previous: string | null; results: ClientRoutine[] }
+    >(`/clients/${clientId}/routines/`)
+    const data = response.data
+    if (Array.isArray(data)) return data
+    if (data && typeof data === 'object' && Array.isArray(data.results)) return data.results
+    return []
   },
 }
 
 // Funciones para objetivos
 export const goalsAPI = {
   getAll: async (params?: { search?: string; ordering?: string }) => {
-    const response = await api.get<Goal[]>('/goals/', { params })
-    return response.data
+    const response = await api.get<Goal[] | { results: Goal[] }>('/goals/', { params })
+    return unwrapList(response.data)
   },
 
   getById: async (id: number) => {
@@ -534,7 +718,7 @@ export const goalsAPI = {
     return response.data
   },
 
-  updateProgress: async (id: number, data: any) => {
+  updateProgress: async (id: number, data: { current_value?: number; is_completed?: boolean }) => {
     const response = await api.post<Goal>(`/goals/${id}/update_progress/`, data)
     return response.data
   },
@@ -543,8 +727,10 @@ export const goalsAPI = {
 // Funciones para métricas de progreso
 export const progressMetricsAPI = {
   getAll: async (params?: { ordering?: string }) => {
-    const response = await api.get<ProgressMetrics[]>('/progress-metrics/', { params })
-    return response.data
+    const response = await api.get<
+      ProgressMetrics[] | { results: ProgressMetrics[] }
+    >('/progress-metrics/', { params })
+    return unwrapList(response.data)
   },
 
   getById: async (id: number) => {
@@ -572,7 +758,7 @@ export const progressMetricsAPI = {
   },
 
   // Endpoints específicos de métricas de progreso
-  getClientProgress: async (params?: { ordering?: string }) => {
+  getClientProgress: async (params?: { ordering?: string; client_id?: number }) => {
     const response = await api.get<ProgressMetrics[]>('/progress-metrics/client_progress/', { params })
     return response.data
   },
@@ -581,8 +767,10 @@ export const progressMetricsAPI = {
 // Funciones para progreso de rutinas
 export const routineProgressAPI = {
   getAll: async (params?: { ordering?: string }) => {
-    const response = await api.get<RoutineProgress[]>('/routine-progress/', { params })
-    return response.data
+    const response = await api.get<
+      RoutineProgress[] | { results: RoutineProgress[] }
+    >('/routine-progress/', { params })
+    return unwrapList(response.data)
   },
 
   getById: async (id: number) => {
@@ -622,17 +810,17 @@ export const workoutsAPI = {
     return response.data
   },
 
-  create: async (workoutData: any) => {
+  create: async (workoutData: Partial<Workout>) => {
     const response = await api.post<Workout>('/workouts/', workoutData)
     return response.data
   },
 
-  update: async (id: number, workoutData: any) => {
+  update: async (id: number, workoutData: Partial<Workout>) => {
     const response = await api.put<Workout>(`/workouts/${id}/`, workoutData)
     return response.data
   },
 
-  patch: async (id: number, workoutData: any) => {
+  patch: async (id: number, workoutData: Partial<Workout>) => {
     const response = await api.patch<Workout>(`/workouts/${id}/`, workoutData)
     return response.data
   },
@@ -686,23 +874,26 @@ export const workoutSetsAPI = {
 }
 
 // Función para manejar errores de la API
-export const handleApiError = (error: any): string => {
-  if (error.response?.data?.message) {
-    return error.response.data.message
+function readErrorMessage(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const payload = data as { message?: unknown; error?: unknown; detail?: unknown }
+  if (typeof payload.message === 'string') return payload.message
+  if (typeof payload.error === 'string') return payload.error
+  if (typeof payload.detail === 'string') return payload.detail
+  return undefined
+}
+
+export const handleApiError = (error: unknown): string => {
+  if (isAxiosError(error)) {
+    const fromBody = readErrorMessage(error.response?.data)
+    if (fromBody) return fromBody
+    if (error.message) return error.message
   }
-  
-  if (error.response?.data?.error) {
-    return error.response.data.error
-  }
-  
-  if (error.response?.data?.detail) {
-    return error.response.data.detail
-  }
-  
-  if (error.message) {
+
+  if (error instanceof Error && error.message) {
     return error.message
   }
-  
+
   return 'Ha ocurrido un error inesperado'
 }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom'
 import { 
-  Calendar, Clock, Target, User, Scale, Ruler, CreditCard, ChevronLeft, ChevronRight, Play, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown, BarChart3
+  Calendar, Target, User, Scale, Ruler, CreditCard, ChevronLeft, ChevronRight, Info, Activity, XCircle, Home, Loader2, Edit, LogOut, ChevronDown, BarChart3, ArrowLeft
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -13,11 +13,50 @@ import ProgressChart from '../components/ProgressChart'
 import MetricSelector from '../components/MetricSelector'
 import ProfileImageUploadModal from '../components/ProfileImageUploadModal'
 import { formatDate, calculateAge } from '../lib/utils'
-import { useAuth } from '../contexts/AuthContext'
-import { DAYS_OF_WEEK, getCurrentDayOfWeek, getSubscriptionStatus } from '../definitions'
-import { useApi } from '../hooks/useApi'
-import { clientsAPI, clientRoutinesAPI } from '../lib/api'
-import type { Client, ProgressMetrics } from '../lib/api'
+import { useAuth } from '../hooks/useAuth'
+import { DAYS_OF_WEEK, getCurrentDayOfWeek, getPlanColorClass, getSubscriptionStatus } from '../definitions'
+import { useMeQuery, useClientQuery, useClientProgressQuery, useUpdateClientMutation } from '../hooks/useClients'
+import { useClientRoutinesByClientQuery } from '../hooks/useClientRoutines'
+import { handleApiError, normalizeAssignedDays } from '../lib/api'
+import type { AssignedRoutine, BodyMeasurements, Client, ClientRoutine } from '../lib/api'
+import ClientDayRoutine from '../components/ClientDayRoutine'
+import { getHomePath, isMember, isStaff } from '../lib/rbac'
+
+const MEASUREMENT_LABELS: Record<keyof BodyMeasurements, string> = {
+  chest: 'Pecho',
+  waist: 'Cintura',
+  biceps: 'Bíceps',
+  forearms: 'Antebrazos',
+  thighs: 'Muslos',
+  calves: 'Pantorrillas',
+  neck: 'Cuello',
+  shoulders: 'Hombros',
+  hips: 'Cadera',
+}
+
+function assignmentsFromClient(assigned?: AssignedRoutine[]): ClientRoutine[] {
+  if (!assigned) return []
+  return assigned.flatMap((item) => {
+    if (typeof item !== 'object' || item === null || !('routine' in item)) return []
+    return [item as ClientRoutine]
+  })
+}
+
+function resolveAssignedRoutines(
+  queried: unknown,
+  fallback?: AssignedRoutine[]
+): ClientRoutine[] {
+  const fromQuery = Array.isArray(queried)
+    ? queried as ClientRoutine[]
+    : queried && typeof queried === 'object' && 'results' in queried && Array.isArray((queried as { results: unknown }).results)
+      ? (queried as { results: ClientRoutine[] }).results
+      : []
+
+  const routines = fromQuery.length > 0 ? fromQuery : assignmentsFromClient(fallback)
+  return routines.filter((routine, index, self) =>
+    index === self.findIndex((item) => item.id === routine.id)
+  )
+}
 
 const ClientDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>()
@@ -47,63 +86,22 @@ const ClientDetail: React.FC = () => {
   const isEditModalOpen = searchParams.get('modal') === 'edit-client'
   const isEditRoutinesModalOpen = searchParams.get('modal') === 'edit-routines'
 
-  // Función personalizada para cargar cliente según la ruta
-  const loadClientData = async () => {
-    try {
-      if (isMeRoute) {
-        const response = await clientsAPI.getMe()
-        return response
-      } else if (clientId) {
-        return await clientsAPI.getById(parseInt(clientId))
-      }
-      throw new Error('ID de cliente no válido')
-    } catch (error) {
-      throw error
-    }
-  }
+  const parsedClientId = clientId ? parseInt(clientId.toString()) : undefined
+  const meQuery = useMeQuery({ enabled: isMeRoute })
+  const clientQuery = useClientQuery(parsedClientId, { enabled: !isMeRoute && !!parsedClientId })
+  const client = (isMeRoute ? meQuery.data : clientQuery.data) ?? null
+  const clientLoading = isMeRoute ? meQuery.isPending : clientQuery.isPending
+  const clientQueryError = isMeRoute ? meQuery.error : clientQuery.error
+  const clientError = clientQueryError ? handleApiError(clientQueryError) : null
 
-  // Hook personalizado para cargar datos del cliente
-  const [client, setClient] = useState<Client | null>(null)
-  const [clientLoading, setClientLoading] = useState(false)
-  const [clientError, setClientError] = useState<string | null>(null)
+  const progressQuery = useClientProgressQuery(client?.id)
+  const routinesQuery = useClientRoutinesByClientQuery(client?.id)
+  const updateClientMutation = useUpdateClientMutation()
 
-  const {
-    data: clientProgress,
-    execute: loadProgress
-  } = useApi<ProgressMetrics[]>(clientsAPI.getProgress)
-
-  const {
-    data: clientRoutines,
-    loading: routinesLoading,
-    error: routinesError,
-    execute: loadRoutines
-  } = useApi<any>(clientRoutinesAPI.getByClientId)
-
-  // Cargar datos al montar el componente
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setClientLoading(true)
-        setClientError(null)
-        
-        // Cargar datos del cliente
-        const clientData = await loadClientData()
-        setClient(clientData)
-        
-        // Cargar progreso y rutinas si tenemos un clientId válido
-        if (clientData?.id) {
-          loadProgress(clientData.id)
-          loadRoutines(clientData.id)
-        }
-      } catch (error: any) {
-        setClientError(error.message || 'Error al cargar los datos del cliente')
-      } finally {
-        setClientLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [clientId, isMeRoute, loadProgress, loadRoutines])
+  const clientProgress = progressQuery.data
+  const clientRoutines = routinesQuery.data
+  const routinesLoading = routinesQuery.isPending
+  const routinesError = routinesQuery.error ? handleApiError(routinesQuery.error) : null
 
   // Cerrar dropdown cuando se hace clic fuera
   useEffect(() => {
@@ -119,23 +117,16 @@ const ClientDetail: React.FC = () => {
     }
   }, [])
 
-  // Función para determinar la ruta de inicio según el rol del usuario
-  const getHomeRoute = () => {
-    return (user?.role === 'client' || user?.role === 'guest') ? '/me' : '/'
-  }
+  const memberView = isMember(user?.role)
+  const staffView = isStaff(user?.role)
+  const getHomeRoute = () => getHomePath(user?.role)
 
-  // Verificar permisos de acceso
   const hasAccess = () => {
-    // Owners y entrenadores pueden acceder a cualquier cliente
-    if (user?.role === 'owner' || user?.role === 'trainer') {
+    if (staffView) return true
+    if (isMeRoute && memberView) return true
+    if (memberView && user?.clientId && clientId && String(user.clientId) === String(clientId)) {
       return true
     }
-    
-    // Clientes y guests solo pueden ver su propia información
-    if ((user?.role === 'client' || user?.role === 'guest') && user?.clientId === clientId) {
-      return true
-    }
-    
     return false
   }
 
@@ -199,38 +190,13 @@ const ClientDetail: React.FC = () => {
   const latestProgress = clientProgress && clientProgress.length > 0 ? 
     clientProgress.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] : null
 
-  // Usar las constantes importadas de definitions.ts
-  // Filtrar rutinas duplicadas basándose en el ID de la rutina
-  // Handle paginated response from API
-  const routinesArray = clientRoutines?.results || clientRoutines || []
-  
-  const assignedRoutines = routinesArray.filter((routine: any, index: number, self: any[]) => 
-    index === self.findIndex((r: any) => r.id === routine.id)
-  )
-  
+  const assignedRoutines = resolveAssignedRoutines(clientRoutines, client.assigned_routines)
+
   const getRoutineForDay = (day: string) => {
-    return assignedRoutines.find((routine: any) => {
-      const assignedDays = routine?.assigned_days
-      
-      // Handle different data types for assigned_days - Fixed for type safety
-      if (Array.isArray(assignedDays)) {
-        return assignedDays.includes(day)
-      } else if (typeof assignedDays === 'string') {
-        // If it's a string, it might be JSON or comma-separated
-        try {
-          const parsed = JSON.parse(assignedDays)
-          return Array.isArray(parsed) ? parsed.includes(day) : false
-        } catch {
-          // If not JSON, try comma-separated
-          return assignedDays.split(',').map(d => d.trim()).includes(day)
-        }
-      }
-      
-      return false
-    })
+    return assignedRoutines.find((routine) => normalizeAssignedDays(routine.assigned_days).includes(day))
   }
-  
-  const currentRoutine = getRoutineForDay(currentDay) as any
+
+  const currentRoutine = getRoutineForDay(currentDay)
   
   const navigateToDay = (day: string) => {
     setCurrentDay(day)
@@ -303,13 +269,10 @@ const ClientDetail: React.FC = () => {
       }))
   }
 
-  const handleSaveClient = async (clientData: any) => {
+  const handleSaveClient = async (clientData: Partial<Client>) => {
     try {
       if (clientId) {
-        await clientsAPI.update(parseInt(clientId), clientData)
-        // Recargar los datos del cliente
-        const updatedClient = await loadClientData()
-        setClient(updatedClient)
+        await updateClientMutation.mutateAsync({ id: parseInt(clientId), data: clientData })
       }
       handleCloseEditModal()
     } catch (error) {
@@ -324,12 +287,18 @@ const ClientDetail: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
+              {staffView && (
+                <Button variant="outline" size="sm" onClick={() => navigate(getHomeRoute())}>
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Volver al panel
+                </Button>
+              )}
               <div>
                 <h1 className="text-xl font-bold text-gray-900">
-                  {user?.role === 'client' ? 'Mi Rutina' : `Cliente: ${client?.name || 'Cargando...'}`}
+                  {memberView ? 'Mi Rutina' : `Cliente: ${client?.name || 'Cargando...'}`}
                 </h1>
                 <p className="text-sm text-gray-600">
-                  {user?.role === 'client' ? 'Detalle de mi información y rutinas' : 'Información del cliente y rutinas asignadas'}
+                  {memberView ? 'Detalle de mi información y rutinas' : 'Información del cliente y rutinas asignadas'}
                 </p>
               </div>
             </div>
@@ -340,11 +309,11 @@ const ClientDetail: React.FC = () => {
               >
                 <Avatar className="w-10 h-10">
                   <AvatarImage 
-                    src={user?.role === 'client' ? client.profile_image : undefined} 
-                    alt={user?.role === 'client' ? client.name : user?.name || ''} 
+                    src={memberView ? client.profile_image : undefined} 
+                    alt={memberView ? client.name : user?.name || ''} 
                   />
                   <AvatarFallback>
-                    {user?.role === 'client' 
+                    {memberView
                       ? client.name.split(' ').map(n => n[0]).join('')
                       : user?.name?.split(' ').map(n => n[0]).join('') || 'U'
                     }
@@ -396,20 +365,20 @@ const ClientDetail: React.FC = () => {
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => {
-                      if (isMeRoute || user?.role === 'client') {
+                      if (isMeRoute || memberView) {
                         setIsUploadModalOpen(true)
                       }
                     }}
                     className="relative group"
                     type="button"
                   >
-                    <Avatar className={`w-16 h-16 ${(isMeRoute || user?.role === 'client') ? 'cursor-pointer ring-2 ring-transparent group-hover:ring-primary-500' : ''} transition-all`}>
+                    <Avatar className={`w-16 h-16 ${(isMeRoute || memberView) ? 'cursor-pointer ring-2 ring-transparent group-hover:ring-primary-500' : ''} transition-all`}>
                       <AvatarImage src={client.profile_image} alt={client.name} />
                       <AvatarFallback>
                         {client.name.split(' ').map(n => n[0]).join('')}
                       </AvatarFallback>
                     </Avatar>
-                    {(isMeRoute || user?.role === 'client') && (
+                    {(isMeRoute || memberView) && (
                       <div className="absolute inset-0 rounded-full bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center pointer-events-none">
                         <span className="text-white text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                           Cambiar
@@ -526,14 +495,18 @@ const ClientDetail: React.FC = () => {
                     <div>
                       <h4 className="font-semibold text-gray-900 mb-3">Medidas Corporales (cm)</h4>
                       <div className="grid grid-cols-2 gap-3">
-                                                 {Object.entries(latestProgress.measurements).map(([key, value]) => (
-                           <div key={key} className="bg-gray-50 p-3 rounded-lg">
-                             <p className="text-sm font-medium text-gray-600 capitalize">
-                               {key.replace('_', ' ')}
-                             </p>
-                             <p className="text-lg font-semibold">{String(value)} cm</p>
-                           </div>
-                         ))}
+                        {(Object.keys(MEASUREMENT_LABELS) as Array<keyof BodyMeasurements>).map((key) => {
+                          const value = latestProgress.measurements?.[key]
+                          if (value == null) return null
+                          return (
+                            <div key={key} className="bg-gray-50 p-3 rounded-lg">
+                              <p className="text-sm font-medium text-gray-600">
+                                {MEASUREMENT_LABELS[key]}
+                              </p>
+                              <p className="text-lg font-semibold">{value} cm</p>
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )}
@@ -580,18 +553,13 @@ const ClientDetail: React.FC = () => {
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <span className="font-medium capitalize">
-                      {client.subscription_type === 'premium' ? 'Premium' : 
-                       client.subscription_type === 'personalized' ? 'Personalizada' : 'Estándar'}
+                      {client.plan?.name || client.subscription_type}
                     </span>
                     <Badge 
                       variant="outline" 
-                      className={
-                        client.subscription_type === 'premium' ? 'border-purple-200 text-purple-700 bg-purple-50' :
-                        client.subscription_type === 'personalized' ? 'border-green-200 text-green-700 bg-green-50' :
-                        'border-blue-200 text-blue-700 bg-blue-50'
-                      }
+                      className={getPlanColorClass(client.plan?.color)}
                     >
-                      {client.subscription_type}
+                      {client.plan?.is_active === false ? 'Inactivo' : (client.subscription_type || 'Plan')}
                     </Badge>
                   </div>
                   <div className="space-y-2">
@@ -734,7 +702,7 @@ const ClientDetail: React.FC = () => {
                       {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
                     </h3>
                     <p className="text-sm text-gray-600">
-                      {currentRoutine ? `${currentRoutine.name} programada` : 'Sin rutina programada'}
+                      {currentRoutine ? `${currentRoutine.routine?.name} programada` : 'Sin rutina programada'}
                     </p>
                   </div>
                   <Button variant="outline" size="sm" onClick={navigateToNextDay}>
@@ -769,118 +737,7 @@ const ClientDetail: React.FC = () => {
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Calendar className="w-5 h-5" />
-                  <span>
-                    Mi Rutina para {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {currentRoutine ? (
-                  <div className="space-y-6">
-                    <div className="bg-gray-50 p-4 rounded-lg">
-                      <h4 className="font-semibold text-lg mb-2">{currentRoutine.routine?.name}</h4>
-                      <p className="text-gray-600 mb-3">{currentRoutine.routine?.description}</p>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <div className="flex items-center space-x-1">
-                          <Clock className="w-4 h-4" />
-                          <span>{currentRoutine.routine?.duration} semanas</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <Target className="w-4 h-4" />
-                          <span>{currentRoutine.routine?.days_per_week} días/semana</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <h5 className="font-semibold">Mis Entrenamientos del día:</h5>
-                      {currentRoutine.routine?.workouts?.map((workout: any) => (
-                        <Card key={workout.id} className="border-l-4 border-l-primary-500">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <div>
-                                <h6 className="font-semibold">{workout.name}</h6>
-                                <p className="text-sm text-gray-600">{workout.description}</p>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {workout.estimated_duration} min
-                                </Badge>
-                                <Badge 
-                                  variant="outline" 
-                                  className={`text-xs ${
-                                    workout.difficulty === 'beginner' ? 'border-green-200 text-green-700 bg-green-50' :
-                                    workout.difficulty === 'intermediate' ? 'border-yellow-200 text-yellow-700 bg-yellow-50' :
-                                    'border-red-200 text-red-700 bg-red-50'
-                                  }`}
-                                >
-                                  {workout.difficulty === 'beginner' ? 'Principiante' :
-                                   workout.difficulty === 'intermediate' ? 'Intermedio' : 'Avanzado'}
-                                </Badge>
-                              </div>
-                            </div>
-                            <div className="space-y-3">
-                              {workout.sets.map((exerciseSet: any) => {
-                                const exercise = exerciseSet.exercise
-                                return (
-                                  <div key={exerciseSet.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <div className="flex-1">
-                                      <p className="font-medium">{exercise?.name}</p>
-                                      <p className="text-sm text-gray-600">{exercise?.description}</p>
-                                    </div>
-                                    <div className="flex items-center space-x-4 text-sm">
-                                      <div className="text-center">
-                                        <p className="font-medium">{exerciseSet.reps}</p>
-                                        <p className="text-gray-500">Reps</p>
-                                      </div>
-                                      {exerciseSet.weight > 0 && (
-                                        <div className="text-center">
-                                          <p className="font-medium">{exerciseSet.weight}kg</p>
-                                          <p className="text-gray-500">Peso</p>
-                                        </div>
-                                      )}
-                                      <div className="text-center">
-                                        <p className="font-medium">{exerciseSet.rest_time}s</p>
-                                        <p className="text-gray-500">Descanso</p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                            <div className="flex space-x-2 mt-4">
-                              <Button className="flex-1 bg-primary-600 hover:bg-primary-700">
-                                <Play className="w-4 h-4 mr-2" />
-                                Iniciar Entrenamiento
-                              </Button>
-                              <Button variant="outline" className="flex-1">
-                                <Activity className="w-4 h-4 mr-2" />
-                                Ver Progreso
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">Sin rutina programada</h4>
-                    <p className="text-gray-600 mb-4">
-                      No hay rutina asignada para {DAYS_OF_WEEK.find(d => d.key === currentDay)?.label}
-                    </p>
-                    <Button variant="outline">
-                      <Target className="w-4 h-4 mr-2" />
-                      Asignar Rutina
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ClientDayRoutine currentDay={currentDay} currentRoutine={currentRoutine} />
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
@@ -888,18 +745,20 @@ const ClientDetail: React.FC = () => {
                     <Target className="w-5 h-5" />
                     <span>Mis Rutinas Asignadas</span>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={() => {
-                      const newParams = new URLSearchParams(searchParams)
-                      newParams.set('modal', 'edit-routines')
-                      setSearchParams(newParams)
-                    }}
-                  >
-                    <Edit className="w-4 h-4 mr-2" />
-                    Editar Rutinas
-                  </Button>
+                  {staffView && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const newParams = new URLSearchParams(searchParams)
+                        newParams.set('modal', 'edit-routines')
+                        setSearchParams(newParams)
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Editar Rutinas
+                    </Button>
+                  )}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -915,7 +774,7 @@ const ClientDetail: React.FC = () => {
                   </div>
                 ) : assignedRoutines.length > 0 ? (
                   <div className="space-y-3">
-                    {assignedRoutines.map((routine: any) => (
+                    {assignedRoutines.map((routine) => (
                       <div key={routine?.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
                           <h6 className="font-medium">{routine?.routine?.name}</h6>
@@ -930,20 +789,8 @@ const ClientDetail: React.FC = () => {
                         </div>
                         <div className="flex items-center space-x-2">
                           {(() => {
-                            const assignedDays = routine?.assigned_days
-                            let daysArray: string[] = []
-                            
-                            if (Array.isArray(assignedDays)) {
-                              daysArray = assignedDays
-                            } else if (typeof assignedDays === 'string') {
-                              try {
-                                const parsed = JSON.parse(assignedDays)
-                                daysArray = Array.isArray(parsed) ? parsed : []
-                              } catch {
-                                daysArray = assignedDays.split(',').map(d => d.trim())
-                              }
-                            }
-                            
+                            const daysArray = normalizeAssignedDays(routine.assigned_days)
+
                             return daysArray.map((day: string) => (
                               <Badge key={day} variant="outline" className="text-xs">
                                 {DAYS_OF_WEEK.find(d => d.key === day)?.short}
@@ -966,8 +813,7 @@ const ClientDetail: React.FC = () => {
         </div>
       </main>
 
-      {/* Edit Client Modal */}
-      {isEditModalOpen && (
+      {staffView && isEditModalOpen && (
         <ClientCreator
           isOpen={isEditModalOpen}
           onClose={handleCloseEditModal}
@@ -977,52 +823,26 @@ const ClientDetail: React.FC = () => {
         />
       )}
 
-      {/* Edit Routines Modal */}
-      {isEditRoutinesModalOpen && clientId && (
+      {staffView && isEditRoutinesModalOpen && clientId && (
         <RoutineEditor
           isOpen={isEditRoutinesModalOpen}
           onClose={handleCloseEditModal}
           clientId={clientId}
           onRoutinesUpdated={() => {
-            // Recargar las rutinas del cliente
-            loadRoutines(parseInt(clientId.toString()))
+            void routinesQuery.refetch()
           }}
         />
       )}
 
-      {/* Modal para subir foto de perfil - Solo visible si es la ruta /me o si el usuario es cliente */}
-      {client && client.id && (isMeRoute || user?.role === 'client') && isUploadModalOpen && (
+      {client && client.id && (isMeRoute || memberView) && isUploadModalOpen && (
         <ProfileImageUploadModal
           isOpen={isUploadModalOpen}
           onClose={() => setIsUploadModalOpen(false)}
           clientId={client.id}
           currentImageUrl={client.profile_image}
           clientName={client.name}
-          onUploadSuccess={async (imageUrl) => {
-            // Actualizar la imagen en el cliente local inmediatamente
-            setClient((prev) => prev ? { ...prev, profile_image: imageUrl } : null)
-            // Recargar los datos del cliente para asegurar consistencia
-            try {
-              let clientData: Client
-              if (isMeRoute) {
-                const response = await clientsAPI.getMe()
-                // Manejar respuesta paginada o directa
-                if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
-                  clientData = response.results[0]
-                } else if ('id' in response) {
-                  clientData = response as Client
-                } else {
-                  return
-                }
-              } else if (client?.id) {
-                clientData = await clientsAPI.getById(client.id)
-              } else {
-                return
-              }
-              setClient(clientData)
-            } catch (error) {
-              console.error('Error reloading client data:', error)
-            }
+          onUploadSuccess={() => {
+            void (isMeRoute ? meQuery.refetch() : clientQuery.refetch())
           }}
         />
       )}

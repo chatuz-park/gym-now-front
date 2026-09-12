@@ -5,8 +5,9 @@ import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
-import { useApi, useDebounce } from '../hooks/useApi'
-import { exercisesAPI } from '../lib/api'
+import { useDebounce } from '../hooks/useDebounce'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import { useExercisesQuery } from '../hooks/useExercises'
 import type { Exercise } from '../lib/api'
 import { 
   EXERCISE_CATEGORIES, 
@@ -78,6 +79,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   const [routineName, setRoutineName] = useState(initialRoutineName)
   const [routineDescription, setRoutineDescription] = useState(initialRoutineDescription)
   const [searchInputValue, setSearchInputValue] = useState('')
+  useLockBodyScroll(isOpen)
 
   // Get state from URL params
   const searchTerm = searchParams.get('search') || ''
@@ -86,13 +88,13 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   // Debounce the search input value
   const debouncedSearchValue = useDebounce(searchInputValue, 500)
 
-  // Hook para cargar ejercicios desde la API
-  const {
-    data: exercises,
-    loading: exercisesLoading,
-    error: exercisesError,
-    execute: loadExercises
-  } = useApi(exercisesAPI.getAll)
+  const exercisesQuery = useExercisesQuery(
+    { search: searchTerm },
+    { enabled: isOpen }
+  )
+  const exercises = exercisesQuery.data
+  const exercisesLoading = exercisesQuery.isPending
+  const exercisesError = exercisesQuery.error
 
   // Initialize search input value from URL params
   useEffect(() => {
@@ -109,24 +111,6 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
     }
     setSearchParams(newParams)
   }, [debouncedSearchValue, setSearchParams])
-
-  // Cargar ejercicios al montar el componente
-  useEffect(() => {
-    if (isOpen) {
-      loadExercises({ search: searchTerm }).catch(error => {
-        console.error('Error loading exercises:', error)
-      })
-    }
-  }, [isOpen, loadExercises])
-
-  // Cargar ejercicios cuando cambie el término de búsqueda
-  useEffect(() => {
-    if (isOpen) {
-      loadExercises({ search: searchTerm }).catch(error => {
-        console.error('Error loading exercises:', error)
-      })
-    }
-  }, [searchTerm, isOpen, loadExercises])
 
   // Update form when initial data changes (for edit mode)
   useEffect(() => {
@@ -231,7 +215,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-lg w-full max-w-6xl h-[95vh] m-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
@@ -283,7 +267,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                 <div className="text-center py-8">
                   <p className="text-yellow-600 mb-2">⚠️ No se pudo conectar con el servidor</p>
                   <p className="text-gray-600 mb-4">Mostrando ejercicios básicos disponibles offline</p>
-                  <Button onClick={() => loadExercises({ search: searchTerm })} variant="outline">
+                  <Button onClick={() => void exercisesQuery.refetch()} variant="outline">
                     <RefreshCw className="w-4 h-4 mr-2" />
                     Reintentar Conexión
                   </Button>

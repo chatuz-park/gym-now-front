@@ -1,15 +1,16 @@
 import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '../hooks/useAuth'
+import { getHomePath, type UserRole } from '../lib/rbac'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
-  allowedRoles?: ('client' | 'guest' | 'trainer' | 'owner')[]
+  allowedRoles?: UserRole[]
   redirectTo?: string
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
-  children, 
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
   allowedRoles = ['client', 'guest', 'trainer', 'owner'],
   redirectTo = '/login'
 }) => {
@@ -32,17 +33,10 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (user && !allowedRoles.includes(user.role)) {
-    // Redirect to appropriate page based on user role
-    if (user.role === 'client') {
-      return <Navigate to="/me" replace />
-    } else if (user.role === 'guest') {
-      return <Navigate to="/me" replace />
-    } else {
-      return <Navigate to="/" replace />
-    }
+    return <Navigate to={getHomePath(user.role)} replace />
   }
 
   return <>{children}</>
 }
 
-export default ProtectedRoute 
+export default ProtectedRoute

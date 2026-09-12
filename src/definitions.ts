@@ -1,8 +1,20 @@
+import type { ComponentType } from 'react'
+
 // ============================================================================
 // TIPOS DE SUSCRIPCIÓN
 // ============================================================================
 
-export type SubscriptionType = 'standard' | 'premium' | 'personalized'
+export type SubscriptionType = string
+export type PlanColor = 'blue' | 'purple' | 'green' | 'orange' | 'red' | 'gray'
+
+export const PLAN_COLORS: Array<{ id: PlanColor; label: string; badge: string; card: string }> = [
+  { id: 'blue', label: 'Azul', badge: 'border-blue-200 text-blue-700 bg-blue-50', card: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { id: 'purple', label: 'Morado', badge: 'border-purple-200 text-purple-700 bg-purple-50', card: 'bg-purple-50 text-purple-700 border-purple-200' },
+  { id: 'green', label: 'Verde', badge: 'border-green-200 text-green-700 bg-green-50', card: 'bg-green-50 text-green-700 border-green-200' },
+  { id: 'orange', label: 'Naranja', badge: 'border-orange-200 text-orange-700 bg-orange-50', card: 'bg-orange-50 text-orange-700 border-orange-200' },
+  { id: 'red', label: 'Rojo', badge: 'border-red-200 text-red-700 bg-red-50', card: 'bg-red-50 text-red-700 border-red-200' },
+  { id: 'gray', label: 'Gris', badge: 'border-gray-200 text-gray-700 bg-gray-50', card: 'bg-gray-50 text-gray-700 border-gray-200' },
+]
 
 export const SUBSCRIPTION_TYPES: Array<{
   id: SubscriptionType
@@ -117,12 +129,32 @@ export interface FilterOption {
   id: string
   label: string
   count: number
-  icon: any // React component type
+  icon: ComponentType<{ className?: string }>
 }
 
 // ============================================================================
 // FUNCIONES UTILITARIAS
 // ============================================================================
+
+/** Interpreta `YYYY-MM-DD` como fecha local para no correr el día por UTC. */
+export function parseLocalDate(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim())
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  }
+  const fallback = new Date(value)
+  return Number.isNaN(fallback.getTime()) ? null : fallback
+}
+
+/** True si `subscription_end` es un día anterior a hoy (la fecha de fin sigue vigente). */
+export function isSubscriptionExpired(endDate?: string | null): boolean {
+  if (!endDate) return false
+  const end = parseLocalDate(endDate)
+  if (!end) return false
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return end < today
+}
 
 export const getSubscriptionStatus = (startDate: string, endDate: string): SubscriptionStatusInfo => {
   const start = new Date(startDate)
@@ -161,6 +193,14 @@ export const getSubscriptionHighlightClass = (status: SubscriptionStatus): strin
   }
 }
 
+export const getPlanColorClass = (color?: string, variant: 'badge' | 'card' = 'badge'): string => {
+  const found = PLAN_COLORS.find((item) => item.id === color)
+  if (found) return variant === 'card' ? found.card : found.badge
+  return variant === 'card'
+    ? 'bg-blue-50 text-blue-700 border-blue-200'
+    : 'border-blue-200 text-blue-700 bg-blue-50'
+}
+
 export const getSubscriptionColor = (type: SubscriptionType): string => {
   switch (type) {
     case 'premium': 
@@ -178,8 +218,10 @@ export const getSubscriptionName = (type: SubscriptionType): string => {
       return 'Premium'
     case 'personalized': 
       return 'Personalizada'
-    default: 
+    case 'standard':
       return 'Estándar'
+    default: 
+      return type
   }
 }
 

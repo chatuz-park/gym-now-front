@@ -1,57 +1,38 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell } from 'lucide-react'
+import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell, CreditCard } from 'lucide-react'
 import { cn } from '../lib/utils'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '../hooks/useAuth'
+import { useMeQuery } from '../hooks/useClients'
 import { Button } from './ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
 import ProfileImageUploadModal from './ProfileImageUploadModal'
-import { clientsAPI } from '../lib/api'
-import type { Client } from '../lib/api'
+import { prefetchPage } from '../pages/lazy'
+import { isMember, isOwner } from '../lib/rbac'
+
+function prefetch(path: string) {
+  void prefetchPage[path]?.()
+}
 
 const Layout: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuth()
-  const [clientProfile, setClientProfile] = useState<Client | null>(null)
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
 
-  // Determinar si el usuario es un cliente o guest
-  const isClientOrGuest = user?.role === 'client' || user?.role === 'guest'
-
-  // Cargar perfil del cliente si el usuario es un cliente
-  useEffect(() => {
-    const loadClientProfile = async () => {
-      // Solo intentar cargar si el usuario es cliente o guest
-      if (user?.role === 'client' || user?.role === 'guest') {
-        try {
-          const response = await clientsAPI.getMe()
-          
-          // Manejar respuesta paginada o directa
-          if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
-            setClientProfile(response.results[0])
-          } else if ('id' in response) {
-            setClientProfile(response as Client)
-          }
-        } catch (error) {
-          // Si falla, simplemente no mostramos la imagen
-          console.error('Error loading client profile in Layout:', error)
-        }
-      }
-    }
-
-    if (user) {
-      loadClientProfile()
-    }
-  }, [user])
+  const isClientOrGuest = isMember(user?.role)
+  const { data: clientProfile } = useMeQuery({ enabled: isClientOrGuest })
 
   const tabs = [
     { id: '/', label: 'Inicio', icon: Home, path: '/' },
     { id: '/clients', label: 'Clientes', icon: Users, path: '/clients' },
     { id: '/routines', label: 'Rutinas', icon: Calendar, path: '/routines' },
     { id: '/exercises', label: 'Ejercicios', icon: Dumbbell, path: '/exercises' },
+    { id: '/plans', label: 'Planes', icon: CreditCard, path: '/plans' },
     { id: '/progress', label: 'Progreso', icon: BarChart3, path: '/progress' },
-    { id: '/settings', label: 'Ajustes', icon: Settings, path: '/settings' },
+    ...(isOwner(user?.role)
+      ? [{ id: '/settings', label: 'Ajustes', icon: Settings, path: '/settings' }]
+      : []),
   ]
 
   const isActiveTab = (path: string) => {
@@ -84,7 +65,10 @@ const Layout: React.FC = () => {
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => navigate(tab.path)}
+                  onMouseEnter={() => prefetch(tab.path)}
+                  onFocus={() => prefetch(tab.path)}
                   className={cn(
                     "flex flex-col items-center justify-center w-full py-2 px-1 transition-colors",
                     isActive
@@ -119,7 +103,10 @@ const Layout: React.FC = () => {
                 return (
                   <button
                     key={tab.id}
+                    type="button"
                     onClick={() => navigate(tab.path)}
+                    onMouseEnter={() => prefetch(tab.path)}
+                    onFocus={() => prefetch(tab.path)}
                     className={cn(
                       "sidebar-menu-item flex items-center space-x-3 w-full px-3 py-2 rounded-lg transition-colors",
                       isActive
@@ -139,11 +126,8 @@ const Layout: React.FC = () => {
               <div className="flex items-center space-x-3 mb-4">
                 <button
                   onClick={() => {
-                    // Solo mostrar modal si hay perfil de cliente, sino navegar a /me
                     if (clientProfile) {
                       setIsUploadModalOpen(true)
-                    } else {
-                      navigate('/me')
                     }
                   }}
                   className="relative group"
@@ -168,15 +152,6 @@ const Layout: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => navigate('/me')}
-                  className="w-full"
-                >
-                  <User className="w-4 h-4 mr-2" />
-                  Mi Perfil
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -236,17 +211,8 @@ const Layout: React.FC = () => {
           clientId={clientProfile.id}
           currentImageUrl={clientProfile.profile_image}
           clientName={clientProfile.name}
-          onUploadSuccess={(imageUrl) => {
-            // Actualizar la imagen en el perfil local
-            setClientProfile((prev) => prev ? { ...prev, profile_image: imageUrl } : null)
-            // Recargar el perfil completo
-            clientsAPI.getMe().then((response) => {
-              if ('results' in response && Array.isArray(response.results) && response.results.length > 0) {
-                setClientProfile(response.results[0])
-              } else if ('id' in response) {
-                setClientProfile(response as Client)
-              }
-            }).catch(console.error)
+          onUploadSuccess={() => {
+            setIsUploadModalOpen(false)
           }}
         />
       )}

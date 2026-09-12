@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Search, Plus, Phone, Calendar, CreditCard, Target, Users, Clock, AlertTriangle, ChevronDown, ChevronRight, RefreshCw, Eye, X, Edit, Trash2, Ruler } from 'lucide-react'
-import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Button } from '../components/ui/button'
@@ -8,25 +8,59 @@ import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar'
 import { Badge } from '../components/ui/badge'
 import ClientCreator from '../components/ClientCreator'
 import RoutineEditor from '../components/RoutineEditor'
+import AddMeasurementsModal from '../components/AddMeasurementsModal'
+import type { MeasurementForm } from '../components/AddMeasurementsModal'
 
 import { formatDate, calculateAge } from '../lib/utils'
-import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
-import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
-import type { Client } from '../lib/api'
+import { useDebounce } from '../hooks/useDebounce'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import { useClientsQuery, useDeleteClientMutation, usePatchClientMutation } from '../hooks/useClients'
+import { useRoutinesQuery } from '../hooks/useRoutines'
+import { useCreateClientRoutineMutation } from '../hooks/useClientRoutines'
+import { useClientProgressMetricsQuery, useCreateProgressMetricsMutation } from '../hooks/useProgress'
+import { handleApiError, getAssignedRoutineId, normalizeAssignedDays } from '../lib/api'
+import type { AssignedRoutineRef, Client, Plan } from '../lib/api'
+import { usePlansQuery } from '../hooks/usePlans'
 import { 
-  DAYS_OF_WEEK
+  DAYS_OF_WEEK,
+  getPlanColorClass
 } from '../definitions'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
+import { useAuth } from '../hooks/useAuth'
+import { canDeleteClient } from '../lib/rbac'
+
+const toLocalDateInputValue = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const toDateInputValue = (value?: string | null) => {
+  if (!value) return ''
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim())
+  return match ? match[1] : value
+}
+
+const addDays = (isoDate: string, days: number) => {
+  const date = new Date(`${isoDate}T00:00:00`)
+  date.setDate(date.getDate() + days)
+  return toLocalDateInputValue(date)
+}
 
 const Clients: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { id: clientIdFromPath } = useParams<{ id: string }>()
+  const { user } = useAuth()
+  const canRemoveClient = canDeleteClient(user?.role)
 
   const [expiringAccordionOpen, setExpiringAccordionOpen] = useState(false)
   const [selectedRoutineForAssignment, setSelectedRoutineForAssignment] = useState<string | null>(null)
   const [selectedDaysForClient, setSelectedDaysForClient] = useState<string[]>([])
-  const [renewalDate, setRenewalDate] = useState('')
+  const [renewalClient, setRenewalClient] = useState<Client | null>(null)
+  const [renewalStartDate, setRenewalStartDate] = useState('')
+  const [renewalEndDate, setRenewalEndDate] = useState('')
+  const [renewalPlanSlug, setRenewalPlanSlug] = useState('')
   const [clientToDelete, setClientToDelete] = useState<Client | null>(null)
   const [searchInputValue, setSearchInputValue] = useState('')
   const [isAddMeasurementsModalOpen, setIsAddMeasurementsModalOpen] = useState(false)
@@ -47,54 +81,31 @@ const Clients: React.FC = () => {
     hips: ''
   })
 
-  // Hook para cargar clientes desde la API
-  const {
-    data: clients,
-    execute: loadClients,
-    refresh: refreshClients
-  } = usePaginatedApi(clientsAPI.getAll)
-
-  // Hook para cargar rutinas desde la API
-  const {
-    data: routines,
-    loading: routinesLoading,
-    error: routinesError,
-    execute: loadRoutines
-  } = usePaginatedApi(routinesAPI.getAll)
-
-  // Hook para asignar rutinas a clientes
-  const {
-    execute: assignRoutineToClient,
-    loading: assigningRoutine
-  } = useApi(clientRoutinesAPI.create)
-
-  // Hook para eliminar clientes
-  const {
-    execute: deleteClient,
-    loading: deletingClient
-  } = useApi(clientsAPI.delete)
-
-  // Hook para agregar medidas de progreso
-  const {
-    execute: addProgressMetrics,
-    loading: addingMeasurements
-  } = useApi(progressMetricsAPI.create)
-
-  // Hook para cargar medidas previas del cliente
-  const {
-    data: clientProgress,
-    execute: loadClientProgress
-  } = useApi(progressMetricsAPI.getClientProgress)
-
-  // Usar las constantes importadas de definitions.ts
-
-  // Get modal state from URL params
   const isClientCreatorOpen = searchParams.get('modal') === 'create-client'
-  const isRenewalModalOpen = searchParams.get('modal') === 'renew-subscription' && !!clientIdFromPath
+  const isRenewalModalOpen = !!renewalClient
   const isAssignRoutineModalOpen = searchParams.get('modal') === 'assign-routine' && !!searchParams.get('id')
   const isEditRoutinesModalOpen = searchParams.get('modal') === 'edit-routines' && !!searchParams.get('id')
+  useLockBodyScroll(isRenewalModalOpen || isAssignRoutineModalOpen || !!clientToDelete)
   const searchTerm = searchParams.get('search') || ''
   const activeFilter = searchParams.get('filter') || 'all'
+
+  const clientsQuery = useClientsQuery({ search: searchTerm, filter: activeFilter })
+  const plansQuery = usePlansQuery(undefined, { enabled: isRenewalModalOpen })
+  const catalogPlans = plansQuery.data ?? []
+  const routinesQuery = useRoutinesQuery()
+  const assignRoutineMutation = useCreateClientRoutineMutation()
+  const patchClientMutation = usePatchClientMutation()
+  const deleteClientMutation = useDeleteClientMutation()
+  const addProgressMutation = useCreateProgressMetricsMutation()
+
+  const clients = clientsQuery.data ?? { count: 0, next: null, previous: null, results: [] }
+  const routines = routinesQuery.data ?? { count: 0, next: null, previous: null, results: [] }
+  const routinesLoading = routinesQuery.isPending
+  const routinesError = routinesQuery.error ? handleApiError(routinesQuery.error) : null
+  const assigningRoutine = assignRoutineMutation.isPending
+  const deletingClient = deleteClientMutation.isPending
+  const addingMeasurements = addProgressMutation.isPending
+  const renewingSubscription = patchClientMutation.isPending
 
   // Debounce the search input value
   const debouncedSearchValue = useDebounce(searchInputValue, 500)
@@ -106,6 +117,8 @@ const Clients: React.FC = () => {
 
   // Update URL params when debounced search value changes
   useEffect(() => {
+    const currentSearch = searchParams.get('search') || ''
+    if (currentSearch === debouncedSearchValue) return
     const newParams = new URLSearchParams(searchParams)
     if (debouncedSearchValue) {
       newParams.set('search', debouncedSearchValue)
@@ -113,18 +126,15 @@ const Clients: React.FC = () => {
       newParams.delete('search')
     }
     setSearchParams(newParams)
-  }, [debouncedSearchValue, setSearchParams])
+  }, [debouncedSearchValue, searchParams, setSearchParams])
 
-  // Cargar clientes y rutinas al montar el componente
-  useEffect(() => {
-    loadClients({ search: searchTerm, filter: activeFilter })
-    loadRoutines()
-  }, [loadClients, loadRoutines])
-
-  // Cargar clientes cuando cambie el término de búsqueda o el filtro
-  useEffect(() => {
-    loadClients({ search: searchTerm, filter: activeFilter })
-  }, [searchTerm, activeFilter, loadClients])
+  const selectedMeasurementsClientId = selectedClientForMeasurements?.id
+  const { data: clientProgress } = useClientProgressMetricsQuery(
+    selectedMeasurementsClientId
+      ? { client_id: selectedMeasurementsClientId, ordering: '-date' }
+      : undefined,
+    { enabled: isAddMeasurementsModalOpen && !!selectedMeasurementsClientId }
+  )
 
   // Cargar rutinas asignadas del cliente cuando se abre el modal
   useEffect(() => {
@@ -134,14 +144,9 @@ const Clients: React.FC = () => {
       
       if (client && client.assigned_routines && client.assigned_routines.length > 0) {
         // Obtener los IDs de las rutinas asignadas
-        const assignedRoutineIds = client.assigned_routines.map(routine => {
-          if (typeof routine === 'number') {
-            return routine
-          }
-          // Cast para acceder a la estructura correcta
-          const assignedRoutine = routine as any
-          return assignedRoutine.routine?.id
-        })
+        const assignedRoutineIds = client.assigned_routines
+          .map((routine) => getAssignedRoutineId(routine))
+          .filter((id): id is number => typeof id === 'number')
         
         // Si hay rutinas asignadas, seleccionar la primera por defecto
         if (assignedRoutineIds.length > 0) {
@@ -225,7 +230,6 @@ const Clients: React.FC = () => {
   }
 
   const filteredClients = getFilteredClients()
-  const renewalClient = clients.results.find(c => c.id.toString() === clientIdFromPath)
   const assignRoutineClient = clients.results.find(c => c.id.toString() === searchParams.get('id'))
 
   // Filter options - counts are based on total counts from API
@@ -262,7 +266,8 @@ const Clients: React.FC = () => {
     return Array.isArray(client?.goals) ? client.goals.map(String) : []
   }
 
-  const getSubscriptionColor = (type: string) => {
+  const getSubscriptionColor = (type: string, color?: string) => {
+    if (color) return getPlanColorClass(color)
     switch (type) {
       case 'premium': return 'border-purple-200 text-purple-700 bg-purple-50'
       case 'personalized': return 'border-green-200 text-green-700 bg-green-50'
@@ -270,11 +275,12 @@ const Clients: React.FC = () => {
     }
   }
 
-  const getSubscriptionName = (type: string) => {
+  const getSubscriptionName = (type: string, planName?: string) => {
+    if (planName) return planName
     switch (type) {
       case 'premium': return 'Premium'
       case 'personalized': return 'Personalizada'
-      default: return 'Estándar'
+      default: return type || 'Estándar'
     }
   }
 
@@ -290,30 +296,64 @@ const Clients: React.FC = () => {
     setSearchParams(newParams)
   }
 
-  const handleRenewSubscription = (clientId: string | number) => {
-    // Navegar a /clients/:id?modal=renew-subscription
-    navigate(`/clients/${clientId}?modal=renew-subscription`)
-    // Set default renewal date to 6 months from now
-    const defaultDate = new Date()
-    defaultDate.setMonth(defaultDate.getMonth() + 6)
-    setRenewalDate(defaultDate.toISOString().split('T')[0])
+  const handleRenewSubscription = (client: Client) => {
+    setRenewalClient(client)
+    setRenewalStartDate(toDateInputValue(client.subscription_start))
+    setRenewalEndDate(toDateInputValue(client.subscription_end))
+    setRenewalPlanSlug(client.subscription_type || '')
   }
 
   const handleCloseRenewalModal = () => {
-    // Volver a la ruta base de clientes
-    navigate('/clients')
-    setRenewalDate('')
+    setRenewalClient(null)
+    setRenewalStartDate('')
+    setRenewalEndDate('')
+    setRenewalPlanSlug('')
   }
 
-  const handleRenewSubscriptionSubmit = () => {
-    if (!renewalDate || !clientIdFromPath) {
-      toast.error('Por favor selecciona una fecha de renovación')
+  const selectedRenewalPlan = catalogPlans.find((plan) => plan.slug === renewalPlanSlug)
+  const renewalDurationDays = selectedRenewalPlan?.duration_days || 30
+
+  const applyQuickRenewalDates = () => {
+    const today = toLocalDateInputValue(new Date())
+    setRenewalStartDate(today)
+    setRenewalEndDate(addDays(today, renewalDurationDays))
+  }
+
+  const handleSelectRenewalPlan = (plan: Plan) => {
+    setRenewalPlanSlug(plan.slug)
+    if (renewalStartDate) {
+      setRenewalEndDate(addDays(renewalStartDate, plan.duration_days))
+    }
+  }
+
+  const handleRenewSubscriptionSubmit = async () => {
+    if (!renewalClient || !renewalStartDate || !renewalEndDate) {
+      toast.error('Selecciona las fechas de inicio y vencimiento')
       return
     }
-    // TODO: Implement subscription renewal logic
-    // Refresh clients to get updated data
-    refreshClients()
-    handleCloseRenewalModal()
+    if (!renewalPlanSlug) {
+      toast.error('Selecciona un plan')
+      return
+    }
+    if (renewalEndDate < renewalStartDate) {
+      toast.error('La fecha de vencimiento debe ser posterior a la de inicio')
+      return
+    }
+
+    try {
+      await patchClientMutation.mutateAsync({
+        id: renewalClient.id,
+        data: {
+          subscription_type: renewalPlanSlug,
+          subscription_start: renewalStartDate,
+          subscription_end: renewalEndDate,
+        },
+      })
+      toast.success('Suscripción renovada')
+      handleCloseRenewalModal()
+    } catch (error) {
+      toast.error(handleApiError(error))
+    }
   }
 
   const handleViewDetails = (clientId: string | number) => {
@@ -353,13 +393,6 @@ const Clients: React.FC = () => {
   const handleAddMeasurements = async (client: Client) => {
     setSelectedClientForMeasurements(client)
     setMeasurementDate(new Date().toISOString().split('T')[0])
-    
-    // Cargar medidas previas del cliente
-    try {
-      await loadClientProgress({ client_id: client.id, ordering: '-date' })
-    } catch (error) {
-      console.error('Error loading client progress:', error)
-    }
     
     setIsAddMeasurementsModalOpen(true)
   }
@@ -422,7 +455,7 @@ const Clients: React.FC = () => {
     }
   }
 
-  const handleMeasurementChange = (field: string, value: string) => {
+  const handleMeasurementChange = (field: keyof MeasurementForm, value: string) => {
     setMeasurements(prev => ({
       ...prev,
       [field]: value
@@ -455,10 +488,9 @@ const Clients: React.FC = () => {
         }
       }
 
-      await addProgressMetrics(measurementsData)
+      await addProgressMutation.mutateAsync(measurementsData)
       toast.success('Medidas agregadas exitosamente')
       handleCloseMeasurementsModal()
-      refreshClients()
     } catch (error) {
       toast.error('Error al agregar las medidas')
       console.error('Error adding measurements:', error)
@@ -469,9 +501,8 @@ const Clients: React.FC = () => {
     if (!clientToDelete) return
 
     try {
-      await deleteClient(clientToDelete.id)
+      await deleteClientMutation.mutateAsync(clientToDelete.id)
       toast.success(`Cliente ${clientToDelete.name} eliminado exitosamente`)
-      refreshClients()
       handleCloseDeleteModal()
     } catch (error) {
       console.error('Error al eliminar cliente:', error)
@@ -529,7 +560,7 @@ const Clients: React.FC = () => {
       })
 
       // Asignar rutina al cliente
-      await assignRoutineToClient({
+      await assignRoutineMutation.mutateAsync({
         client_id: parseInt(clientId),
         routine_id: parseInt(selectedRoutineForAssignment),
         start_date: new Date().toISOString().split('T')[0],
@@ -537,9 +568,6 @@ const Clients: React.FC = () => {
         assigned_days: assignedDays
       })
 
-      // Actualizar la lista de clientes
-      refreshClients()
-      
       // Cerrar modal y limpiar estado
       handleCloseRoutineModal()
       
@@ -559,8 +587,7 @@ const Clients: React.FC = () => {
   }
 
   const handleCreateClient = () => {
-    // El cliente ya fue creado en la API, solo necesitamos actualizar la lista
-    refreshClients()
+    void clientsQuery.refetch()
   }
 
   const handleSearchChange = (value: string) => {
@@ -572,22 +599,12 @@ const Clients: React.FC = () => {
     const client = clients.results.find(c => c.id.toString() === clientId)
     
     if (client?.assigned_routines) {
-      const assignedRoutine = client.assigned_routines.find((routine: any) => {
-        if (typeof routine === 'number') {
-          return routine.toString() === routineId
-        }
-        const assignedRoutine = routine as any
-        return assignedRoutine.routine?.id?.toString() === routineId
+      const assignedRoutine = client.assigned_routines.find((routine) => {
+        return getAssignedRoutineId(routine)?.toString() === routineId
       })
-      
+
       if (assignedRoutine && typeof assignedRoutine !== 'number') {
-        const assignedRoutineData = assignedRoutine as any
-        if (assignedRoutineData.assigned_days) {
-          // Convertir assigned_days de objeto a array de strings
-          return Object.keys(assignedRoutineData.assigned_days).filter(day => 
-            assignedRoutineData.assigned_days[day]
-          )
-        }
+        return normalizeAssignedDays((assignedRoutine as AssignedRoutineRef).assigned_days)
       }
     }
     return []
@@ -608,22 +625,18 @@ const Clients: React.FC = () => {
     
     const allDays: { [key: string]: string[] } = {}
     
-    client.assigned_routines.forEach(assignedRoutine => {
+    client.assigned_routines.forEach((assignedRoutine) => {
       if (typeof assignedRoutine === 'number') return
-      
-      const assignedRoutineData = assignedRoutine as any
-      if (assignedRoutineData.assigned_days) {
-        const routineDays = Object.keys(assignedRoutineData.assigned_days).filter(day => 
-          assignedRoutineData.assigned_days[day]
-        )
-        
-        routineDays.forEach(day => {
-          if (!allDays[day]) {
-            allDays[day] = []
-          }
-          allDays[day].push(assignedRoutineData.routine?.name || 'Rutina')
-        })
-      }
+
+      const ref = assignedRoutine as AssignedRoutineRef
+      const routineDays = normalizeAssignedDays(ref.assigned_days)
+
+      routineDays.forEach((day) => {
+        if (!allDays[day]) {
+          allDays[day] = []
+        }
+        allDays[day].push(ref.routine?.name || 'Rutina')
+      })
     })
     
     return allDays
@@ -643,7 +656,6 @@ const Clients: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <Toaster position="top-right" />
       <div className="space-y-2">
         <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
         <p className="text-gray-600">Gestiona tus clientes y su información</p>
@@ -828,7 +840,7 @@ const Clients: React.FC = () => {
                           <div>
                             <p className="font-medium text-gray-900">{client.name}</p>
                             <p className="text-sm text-gray-600">
-                              {getSubscriptionName(client.subscription_type || 'standard')} - Vence {client.subscription_end}
+                              {getSubscriptionName(client.subscription_type || 'standard', client.plan?.name)} - Vence {client.subscription_end}
                             </p>
                           </div>
                         </div>
@@ -919,9 +931,9 @@ const Clients: React.FC = () => {
                           {client.subscription_type && (
                             <Badge 
                               variant="outline" 
-                              className={`text-xs ${getSubscriptionColor(client.subscription_type)}`}
+                              className={`text-xs ${getSubscriptionColor(client.subscription_type || '', client.plan?.color)}`}
                             >
-                              {getSubscriptionName(client.subscription_type)}
+                              {getSubscriptionName(client.subscription_type || '', client.plan?.name)}
                             </Badge>
                           )}
                           {subscriptionStatus && (
@@ -1031,7 +1043,7 @@ const Clients: React.FC = () => {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation()
-                            handleRenewSubscription(client.id)
+                            handleRenewSubscription(client)
                           }}
                           className="flex-1"
                         >
@@ -1087,6 +1099,7 @@ const Clients: React.FC = () => {
                             Editar Rutinas
                           </Button>
                         )}
+                        {canRemoveClient && (
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -1099,6 +1112,7 @@ const Clients: React.FC = () => {
                           <Trash2 className="w-4 h-4 mr-1" />
                           Eliminar
                         </Button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1110,13 +1124,13 @@ const Clients: React.FC = () => {
       </div>
 
       {/* Subscription Renewal Modal */}
-      {isRenewalModalOpen && clientIdFromPath && (
+      {isRenewalModalOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
           onClick={handleCloseRenewalModal}
         >
           <Card 
-            className="w-full max-w-md overflow-hidden"
+            className="w-full max-w-2xl max-h-[90vh] overflow-hidden"
             onClick={handleModalContentClick}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white sticky top-0 z-10 border-b">
@@ -1130,7 +1144,7 @@ const Clients: React.FC = () => {
                 <X className="h-4 w-4" />
               </Button>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 overflow-y-auto max-h-[calc(90vh-72px)]">
               <div className="text-center">
                 <p className="text-sm text-gray-600">
                   Renovar suscripción para{' '}
@@ -1140,7 +1154,6 @@ const Clients: React.FC = () => {
                 </p>
               </div>
 
-              {/* Client Info */}
               <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
                 <Avatar className="w-10 h-10">
                   <AvatarImage src={renewalClient?.profile_image} />
@@ -1153,108 +1166,101 @@ const Clients: React.FC = () => {
                     {renewalClient?.name}
                   </p>
                   <p className="text-xs text-gray-600">
-                    {renewalClient?.subscription_type || 'Sin suscripción'}
+                    {getSubscriptionName(renewalPlanSlug || renewalClient?.subscription_type || '', selectedRenewalPlan?.name || renewalClient?.plan?.name)}
                   </p>
                 </div>
               </div>
 
-              {/* Current Subscription Info */}
-              {renewalClient?.subscription_end && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-sm font-medium text-yellow-800 mb-1">Suscripción Actual</p>
-                  <p className="text-xs text-yellow-700">
-                    Vence: {renewalClient.subscription_end}
-                  </p>
-                </div>
-              )}
-
-              {/* Renewal Date Selection */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-600">
-                  Nueva fecha de vencimiento
+                  Plan
                 </label>
-                <Input
-                  type="date"
-                  value={renewalDate}
-                  onChange={(e) => setRenewalDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="w-full"
-                />
-                <p className="text-xs text-gray-500">
-                  Selecciona hasta cuándo renovar la suscripción
-                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {catalogPlans
+                    .filter((plan) => plan.is_active || plan.slug === renewalPlanSlug)
+                    .map((plan) => (
+                      <button
+                        type="button"
+                        key={plan.id}
+                        onClick={() => handleSelectRenewalPlan(plan)}
+                        className={`rounded-lg border p-3 text-left transition-all hover:shadow-md ${
+                          renewalPlanSlug === plan.slug
+                            ? 'ring-2 ring-primary-500 bg-primary-50 border-primary-200'
+                            : 'bg-white border-gray-200'
+                        }`}
+                      >
+                        <p className="font-semibold text-sm text-gray-900">{plan.name}</p>
+                        <p className="text-lg font-bold text-primary-600 mt-1">
+                          ${plan.price.toLocaleString('es-CO')}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">{plan.duration_days} días</p>
+                      </button>
+                    ))}
+                </div>
+                {plansQuery.isPending && (
+                  <p className="text-sm text-gray-500">Cargando planes…</p>
+                )}
+                {!plansQuery.isPending && catalogPlans.filter((plan) => plan.is_active || plan.slug === renewalPlanSlug).length === 0 && (
+                  <p className="text-sm text-amber-700">
+                    No hay planes activos. Un propietario debe crearlos en Planes.
+                  </p>
+                )}
               </div>
 
-              {/* Quick Date Options */}
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-600">Opciones rápidas</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const date = new Date()
-                      date.setMonth(date.getMonth() + 3)
-                      setRenewalDate(date.toISOString().split('T')[0])
-                    }}
-                    className="text-xs"
-                  >
-                    3 meses
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const date = new Date()
-                      date.setMonth(date.getMonth() + 6)
-                      setRenewalDate(date.toISOString().split('T')[0])
-                    }}
-                    className="text-xs"
-                  >
-                    6 meses
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const date = new Date()
-                      date.setFullYear(date.getFullYear() + 1)
-                      setRenewalDate(date.toISOString().split('T')[0])
-                    }}
-                    className="text-xs"
-                  >
-                    1 año
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const date = new Date()
-                      date.setFullYear(date.getFullYear() + 2)
-                      setRenewalDate(date.toISOString().split('T')[0])
-                    }}
-                    className="text-xs"
-                  >
-                    2 años
-                  </Button>
+              <div className="grid grid-cols-1 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">
+                    Fecha de inicio
+                  </label>
+                  <Input
+                    type="date"
+                    value={renewalStartDate}
+                    onChange={(e) => setRenewalStartDate(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">
+                    Fecha de vencimiento
+                  </label>
+                  <Input
+                    type="date"
+                    value={renewalEndDate}
+                    onChange={(e) => setRenewalEndDate(e.target.value)}
+                    min={renewalStartDate || undefined}
+                    className="w-full"
+                  />
                 </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex space-x-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={applyQuickRenewalDates}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Renovar fechas
+              </Button>
+              <p className="text-xs text-gray-500 text-center">
+                Pone el inicio en hoy y el vencimiento según el plan ({renewalDurationDays} días)
+              </p>
+
+              <div className="flex space-x-2 pt-2">
                 <Button 
                   variant="outline" 
                   className="flex-1"
                   onClick={handleCloseRenewalModal}
+                  disabled={renewingSubscription}
                 >
                   Cancelar
                 </Button>
                 <Button 
                   className="flex-1 bg-primary-600 hover:bg-primary-700"
-                  onClick={handleRenewSubscriptionSubmit}
-                  disabled={!renewalDate}
+                  onClick={() => void handleRenewSubscriptionSubmit()}
+                  disabled={!renewalStartDate || !renewalEndDate || !renewalPlanSlug || renewingSubscription}
                 >
-                  Renovar Suscripción
+                  {renewingSubscription ? 'Guardando...' : 'Guardar'}
                 </Button>
               </div>
             </CardContent>
@@ -1265,7 +1271,7 @@ const Clients: React.FC = () => {
       {/* Assign Routine Modal */}
       {isAssignRoutineModalOpen && searchParams.get('id') && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
           onClick={handleCloseRoutineModal}
         >
           <Card 
@@ -1309,13 +1315,8 @@ const Clients: React.FC = () => {
                   ) : routines.results.length > 0 ? (
                     <div className="space-y-2">
                       {routines.results.map((routine) => {
-                        const isAlreadyAssigned = assignRoutineClient?.assigned_routines?.some((assignedRoutine: any) => {
-                          // Si assignedRoutine es un número, comparar directamente
-                          if (typeof assignedRoutine === 'number') {
-                            return assignedRoutine === routine.id
-                          }
-                          // Si assignedRoutine es un objeto, comparar con routine.id
-                          return assignedRoutine.routine?.id === routine.id
+                        const isAlreadyAssigned = assignRoutineClient?.assigned_routines?.some((assignedRoutine) => {
+                          return getAssignedRoutineId(assignedRoutine) === routine.id
                         })
                         
                         return (
@@ -1484,282 +1485,28 @@ const Clients: React.FC = () => {
           onClose={handleCloseEditRoutinesModal}
           clientId={searchParams.get('id')!}
           onRoutinesUpdated={() => {
-            refreshClients()
+            void clientsQuery.refetch()
           }}
         />
       )}
 
-      {/* Add Measurements Modal */}
       {isAddMeasurementsModalOpen && selectedClientForMeasurements && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={handleCloseMeasurementsModal}
-        >
-          <Card 
-            className="w-full max-w-2xl max-h-[90vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 bg-white sticky top-0 z-10 border-b">
-              <CardTitle>Agregar Medidas</CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCloseMeasurementsModal}
-                className="h-8 w-8 p-0 hover:bg-gray-100 flex-shrink-0"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <div className="max-h-[calc(90vh-80px)] overflow-y-auto">
-              <CardContent className="space-y-6 p-6">
-                <div className="text-center">
-                  <p className="text-sm text-gray-600">
-                    Agregar medidas de progreso para{' '}
-                    <span className="font-semibold">
-                      {selectedClientForMeasurements.name}
-                    </span>
-                  </p>
-                </div>
-
-                {/* Client Info */}
-                <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <Avatar className="w-10 h-10">
-                    <AvatarImage src={selectedClientForMeasurements.profile_image} />
-                    <AvatarFallback>
-                      {selectedClientForMeasurements.name.split(' ').map(n => n[0]).join('')}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="font-medium text-sm">
-                      {selectedClientForMeasurements.name}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      {selectedClientForMeasurements.email}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Date Selection */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">
-                    Fecha de las medidas *
-                  </label>
-                  <Input
-                    type="date"
-                    value={measurementDate}
-                    onChange={(e) => setMeasurementDate(e.target.value)}
-                    max={new Date().toISOString().split('T')[0]}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-gray-500">
-                    Selecciona la fecha en que se tomaron las medidas
-                  </p>
-                </div>
-
-                {/* Measurements Form */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Medidas Corporales</h3>
-                  
-                  {/* Weight and Body Composition */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Peso (kg) *
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().weight}
-                        value={measurements.weight}
-                        onChange={(e) => handleMeasurementChange('weight', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Grasa Corporal (%)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().body_fat}
-                        value={measurements.body_fat}
-                        onChange={(e) => handleMeasurementChange('body_fat', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Masa Muscular (kg)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().muscle_mass}
-                        value={measurements.muscle_mass}
-                        onChange={(e) => handleMeasurementChange('muscle_mass', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Body Measurements */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Pecho (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().chest}
-                        value={measurements.chest}
-                        onChange={(e) => handleMeasurementChange('chest', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Cintura (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().waist}
-                        value={measurements.waist}
-                        onChange={(e) => handleMeasurementChange('waist', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Bíceps (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().biceps}
-                        value={measurements.biceps}
-                        onChange={(e) => handleMeasurementChange('biceps', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Antebrazos (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().forearms}
-                        value={measurements.forearms}
-                        onChange={(e) => handleMeasurementChange('forearms', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Muslos (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().thighs}
-                        value={measurements.thighs}
-                        onChange={(e) => handleMeasurementChange('thighs', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Pantorrillas (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().calves}
-                        value={measurements.calves}
-                        onChange={(e) => handleMeasurementChange('calves', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Cuello (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().neck}
-                        value={measurements.neck}
-                        onChange={(e) => handleMeasurementChange('neck', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Hombros (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().shoulders}
-                        value={measurements.shoulders}
-                        onChange={(e) => handleMeasurementChange('shoulders', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-600">
-                        Caderas (cm)
-                      </label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        placeholder={getLatestMeasurements().hips}
-                        value={measurements.hips}
-                        onChange={(e) => handleMeasurementChange('hips', e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex space-x-3 pt-4">
-                  <Button 
-                    variant="outline" 
-                    onClick={handleCloseMeasurementsModal}
-                    className="flex-1"
-                    disabled={addingMeasurements}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button 
-                    onClick={handleSubmitMeasurements}
-                    className="flex-1 bg-primary-600 hover:bg-primary-700"
-                    disabled={!measurementDate || !measurements.weight || addingMeasurements}
-                  >
-                    {addingMeasurements ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Agregando...
-                      </>
-                    ) : (
-                      'Agregar Medidas'
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </div>
-          </Card>
-        </div>
+        <AddMeasurementsModal
+          client={selectedClientForMeasurements}
+          date={measurementDate}
+          measurements={measurements}
+          placeholders={getLatestMeasurements()}
+          loading={addingMeasurements}
+          onClose={handleCloseMeasurementsModal}
+          onDateChange={setMeasurementDate}
+          onChange={handleMeasurementChange}
+          onSubmit={handleSubmitMeasurements}
+        />
       )}
 
-      {/* Delete Client Confirmation Modal */}
-      {clientToDelete && (
+      {canRemoveClient && clientToDelete && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
           onClick={handleCloseDeleteModal}
         >
           <Card 

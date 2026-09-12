@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, User, Mail, Phone, Calendar, Target, Ruler, Scale, Activity, AlertCircle } from 'lucide-react'
+import { X, User, Mail, Phone, Calendar, Target, Ruler, Scale, Activity, AlertCircle, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Formik, Form, Field, ErrorMessage } from 'formik'
 import * as Yup from 'yup'
@@ -8,9 +8,14 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Badge } from './ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
-import { usePaginatedApi, useApi } from '../hooks/useApi'
-import { clientsAPI, routinesAPI, clientRoutinesAPI, progressMetricsAPI } from '../lib/api'
-import type { Client, Routine } from '../lib/api'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import { useClientQuery, useCreateClientMutation, useUpdateClientMutation } from '../hooks/useClients'
+import { useRoutinesQuery } from '../hooks/useRoutines'
+import { useCreateClientRoutineMutation } from '../hooks/useClientRoutines'
+import { useCreateProgressMetricsMutation } from '../hooks/useProgress'
+import { getAssignedRoutineId } from '../lib/api'
+import type { Client, Plan, Routine } from '../lib/api'
+import { usePlansQuery } from '../hooks/usePlans'
 import { calculateAge } from '../lib/utils'
 import toast from 'react-hot-toast'
 import { 
@@ -28,7 +33,7 @@ interface ClientFormValues {
   weight: string
   height: string
   goals: string[]
-  subscriptionType: 'standard' | 'premium' | 'personalized'
+  subscriptionType: string
   startDate: string
   endDate: string
   notes: string
@@ -54,7 +59,7 @@ interface ClientFormValues {
 // Tipo para cliente extendido con datos adicionales
 interface ExtendedClient extends Client {
   subscription?: {
-    type: 'standard' | 'premium' | 'personalized'
+    type: string
     startDate: string
     endDate: string
   }
@@ -138,7 +143,6 @@ const createValidationSchema = (isEditMode: boolean = false) => {
     
     // Suscripción
     subscriptionType: Yup.string()
-      .oneOf(['standard', 'premium', 'personalized'], 'Tipo de suscripción inválido')
       .required('Debe seleccionar un tipo de suscripción'),
     
     startDate: Yup.date()
@@ -273,7 +277,7 @@ const initialValues = {
   goals: [] as string[],
   
   // Suscripción
-  subscriptionType: 'standard' as const,
+  subscriptionType: '',
   startDate: '',
   endDate: '',
   
@@ -305,7 +309,17 @@ const initialValues = {
 
 }
 
-// Usar las constantes importadas de definitions.ts
+/** HTML date inputs need `YYYY-MM-DD`; the API may send a full ISO datetime. */
+const toDateInputValue = (value?: string | null): string => {
+  if (!value) return ''
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim())
+  return match ? match[1] : value
+}
+
+const getClientSubscriptionDates = (client: ExtendedClient) => ({
+  startDate: toDateInputValue(client.subscription?.startDate || client.subscription_start),
+  endDate: toDateInputValue(client.subscription?.endDate || client.subscription_end),
+})
 
 const ClientCreator: React.FC<ClientCreatorProps> = ({
   isOpen,
@@ -318,57 +332,36 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   const [activeTab, setActiveTab] = useState('personal')
   const [searchRoutine, setSearchRoutine] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  useLockBodyScroll(isOpen)
 
-  // Hooks para cargar datos desde la API
-  const {
-    data: routines,
-    execute: loadRoutines
-  } = usePaginatedApi(routinesAPI.getAll)
+  const parsedEditClientId = clientId ? parseInt(clientId.toString()) : undefined
+  const routinesQuery = useRoutinesQuery(
+    { search: searchRoutine },
+    { enabled: isOpen }
+  )
+  const plansQuery = usePlansQuery(undefined, { enabled: isOpen })
+  const catalogPlans = plansQuery.data ?? []
+  const selectablePlans = catalogPlans.filter((plan) => plan.is_active)
+  const createClientMutation = useCreateClientMutation()
+  const updateClientMutation = useUpdateClientMutation()
+  const createClientRoutineMutation = useCreateClientRoutineMutation()
+  const createProgressMutation = useCreateProgressMetricsMutation()
+  const clientQuery = useClientQuery(parsedEditClientId, {
+    enabled: isOpen && !!parsedEditClientId && !clientToEdit,
+  })
 
-  const {
-    execute: createClient,
-    loading: creatingClient
-  } = useApi(clientsAPI.create)
-
-  const {
-    execute: updateClient,
-    loading: updatingClient
-  } = useApi(clientsAPI.update)
-
+  const routines = routinesQuery.data ?? { count: 0, next: null, previous: null, results: [] }
+  const clientFromApi = clientQuery.data
+  // isPending stays true on a disabled query with no data (create mode).
+  // Only show the loader when we are actually fetching an existing client.
+  const clientLoading = Boolean(parsedEditClientId) && !clientToEdit && clientQuery.isLoading
+  const clientError = Boolean(parsedEditClientId) && !clientToEdit && clientQuery.isError
+  const creatingClient = createClientMutation.isPending
+  const updatingClient = updateClientMutation.isPending
   const isProcessing = isSubmitting || creatingClient || updatingClient
-
-  const {
-    execute: createClientRoutine
-  } = useApi(clientRoutinesAPI.create)
-
-  const {
-    execute: createProgressMetrics
-  } = useApi(progressMetricsAPI.create)
-
-  // Hook para cargar cliente desde API
-  const {
-    data: clientFromApi,
-    loading: clientLoading,
-    error: clientError,
-    execute: loadClient
-  } = useApi(clientsAPI.getById)
 
   // Estado para el cliente que se está editando
   const [editingClient, setEditingClient] = useState<ExtendedClient | null>(null)
-
-  // Cargar rutinas al montar el componente o cuando cambie el término de búsqueda
-  useEffect(() => {
-    if (isOpen) {
-      loadRoutines({ search: searchRoutine })
-    }
-  }, [isOpen, loadRoutines, searchRoutine])
-
-  // Cargar cliente desde API cuando se abre en modo edición
-  useEffect(() => {
-    if (isOpen && clientId && !clientToEdit) {
-      loadClient(parseInt(clientId.toString()))
-    }
-  }, [isOpen, clientId, clientToEdit, loadClient])
 
   // Actualizar cliente de edición cuando se carga desde API
   useEffect(() => {
@@ -376,19 +369,18 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
       // Convertir el cliente de la API al formato ExtendedClient
       const extendedClient: ExtendedClient = {
         ...clientFromApi,
-        subscription: clientFromApi.subscription_type ? {
-          type: clientFromApi.subscription_type,
-          startDate: clientFromApi.subscription_start || '',
-          endDate: clientFromApi.subscription_end || ''
-        } : undefined,
+        subscription: {
+          type: clientFromApi.subscription_type || '',
+          ...getClientSubscriptionDates(clientFromApi),
+        },
         emergencyContact: clientFromApi.emergency_contact,
         medicalConditions: clientFromApi.medical_conditions,
         bodyFat: undefined, // Estos campos no están en la API base
         muscleMass: undefined,
         measurements: undefined,
-        assignedRoutines: clientFromApi.assigned_routines?.map(routine => 
-          typeof routine === 'number' ? routine : routine.id
-        ) || []
+        assignedRoutines: clientFromApi.assigned_routines
+          ?.map((routine) => getAssignedRoutineId(routine))
+          .filter((id): id is number => typeof id === 'number') || []
       }
       setEditingClient(extendedClient)
     }
@@ -423,15 +415,41 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   }
 
   // Función para obtener tipo de suscripción válido
-  const getSubscriptionType = (client: ExtendedClient): 'standard' | 'premium' | 'personalized' => {
-    const type = client.subscription?.type
-    if (type === 'premium' || type === 'personalized') return type
-    return 'standard'
+  const getSubscriptionType = (client: ExtendedClient): string => {
+    return client.subscription?.type || client.subscription_type || ''
+  }
+
+  const resolvePlan = (slug: string): Plan | undefined => {
+    return catalogPlans.find((plan) => plan.slug === slug)
+  }
+
+  const toLocalDateInputValue = (date: Date) => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  const addDays = (isoDate: string, days: number) => {
+    const date = new Date(`${isoDate}T00:00:00`)
+    date.setDate(date.getDate() + days)
+    return toLocalDateInputValue(date)
+  }
+
+  const renewSubscriptionDates = (setFieldValue: (field: string, value: string) => void) => {
+    const today = toLocalDateInputValue(new Date())
+    setFieldValue('startDate', today)
+    setFieldValue('endDate', addDays(today, 30))
   }
 
   // Generar valores iniciales basados en el cliente a editar
   const getInitialValues = (): ClientFormValues => {
-    if (!clientToEditFinal) return initialValues
+    if (!clientToEditFinal) {
+      return {
+        ...initialValues,
+        subscriptionType: selectablePlans[0]?.slug || '',
+      }
+    }
 
     return {
       // Información personal
@@ -443,15 +461,14 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
       height: numberToString(clientToEditFinal.height),
       goals: Array.isArray(clientToEditFinal.goals) ? clientToEditFinal.goals : [],
       
-      // Suscripción
+      // Suscripción (API: subscription_start/end; edit payload legado: subscription.startDate/endDate)
       subscriptionType: getSubscriptionType(clientToEditFinal),
-      startDate: clientToEditFinal.subscription?.startDate || '',
-      endDate: clientToEditFinal.subscription?.endDate || '',
+      ...getClientSubscriptionDates(clientToEditFinal),
       
       // Información adicional
       notes: clientToEditFinal.notes || '',
-      emergencyContact: clientToEditFinal.emergencyContact || '',
-      medicalConditions: clientToEditFinal.medicalConditions || '',
+      emergencyContact: clientToEditFinal.emergencyContact || clientToEditFinal.emergency_contact || '',
+      medicalConditions: clientToEditFinal.medicalConditions || clientToEditFinal.medical_conditions || '',
       
       // Medidas antropométricas
       bodyFat: numberToString(clientToEditFinal.bodyFat),
@@ -509,7 +526,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   // Función para crear rutinas de cliente
   const createClientRoutines = async (clientId: number, routineIds: number[]) => {
     const routinePromises = routineIds.map(routineId => 
-      createClientRoutine({
+      createClientRoutineMutation.mutateAsync({
         client_id: clientId,
         routine_id: routineId,
         start_date: new Date().toISOString().split('T')[0],
@@ -531,13 +548,15 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
       let updatedClient: Client | null
 
       if (isEditMode) {
-        updatedClient = await updateClient(clientToEditFinal!.id, clientData)
+        updatedClient = await updateClientMutation.mutateAsync({
+          id: clientToEditFinal!.id,
+          data: clientData,
+        })
       } else {
-        updatedClient = await createClient(clientData)
+        updatedClient = await createClientMutation.mutateAsync(clientData)
         
         if (updatedClient) {
-          // Crear datos adicionales solo para nuevos clientes
-          await createProgressMetrics(createProgressData(updatedClient.id, values))
+          await createProgressMutation.mutateAsync(createProgressData(updatedClient.id, values))
           await createClientRoutines(updatedClient.id, values.selectedRoutines)
         }
       }
@@ -570,7 +589,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-lg w-full max-w-4xl h-[90vh] m-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
@@ -1019,22 +1038,30 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                             Tipo de Suscripción *
                           </label>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {SUBSCRIPTION_TYPES.map((type) => (
+                            {catalogPlans
+                              .filter((plan) => plan.is_active || plan.slug === values.subscriptionType)
+                              .map((plan) => (
                               <Card 
-                                key={type.id}
+                                key={plan.id}
                                 className={`cursor-pointer transition-all hover:shadow-md ${
-                                  values.subscriptionType === type.id ? 'ring-2 ring-primary-500 bg-primary-50' : ''
+                                  values.subscriptionType === plan.slug ? 'ring-2 ring-primary-500 bg-primary-50' : ''
                                 }`}
-                                onClick={() => setFieldValue('subscriptionType', type.id)}
+                                onClick={() => {
+                                  setFieldValue('subscriptionType', plan.slug)
+                                  if (values.startDate) {
+                                    setFieldValue('endDate', addDays(values.startDate, plan.duration_days))
+                                  }
+                                }}
                               >
                                 <CardContent className="p-4">
                                   <div className="text-center">
-                                    <h4 className="font-semibold text-gray-900">{type.name}</h4>
+                                    <h4 className="font-semibold text-gray-900">{plan.name}</h4>
                                     <p className="text-2xl font-bold text-primary-600 mt-2">
-                                      ${type.price.toLocaleString('es-CO')}
+                                      ${plan.price.toLocaleString('es-CO')}
                                     </p>
+                                    <p className="text-xs text-gray-500 mt-1">{plan.duration_days} días</p>
                                     <ul className="text-sm text-gray-600 mt-3 space-y-1">
-                                      {type.features.map((feature, index) => (
+                                      {plan.features.map((feature, index) => (
                                         <li key={index}>• {feature}</li>
                                       ))}
                                     </ul>
@@ -1043,9 +1070,29 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                               </Card>
                             ))}
                           </div>
+                          {plansQuery.isPending && (
+                            <p className="text-sm text-gray-500">Cargando planes…</p>
+                          )}
+                          {!plansQuery.isPending && selectablePlans.length === 0 && (
+                            <p className="text-sm text-amber-700">
+                              No hay planes activos. Un propietario debe crearlos en Planes.
+                            </p>
+                          )}
                         </div>
 
                         {/* Subscription Dates */}
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm font-medium text-gray-700">Fechas de suscripción</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => renewSubscriptionDates(setFieldValue)}
+                          >
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Renovar fechas
+                          </Button>
+                        </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1270,10 +1317,14 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                         <div className="p-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center justify-between">
                             <span className="font-medium">
-                              {SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.name}
+                              {resolvePlan(values.subscriptionType)?.name
+                                || SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.name
+                                || values.subscriptionType}
                             </span>
                             <span className="text-primary-600 font-bold">
-                              ${SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.price?.toLocaleString('es-CO')}
+                              ${(resolvePlan(values.subscriptionType)?.price
+                                ?? SUBSCRIPTION_TYPES.find(s => s.id === values.subscriptionType)?.price
+                                ?? 0).toLocaleString('es-CO')}
                             </span>
                           </div>
                           {values.startDate && (

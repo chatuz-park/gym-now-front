@@ -1,17 +1,77 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { 
   Search, Plus, Edit, Trash2, Loader2, RefreshCw, 
-  Dumbbell, Eye, X, Save, AlertCircle 
+  Dumbbell, Eye, X, Save, AlertCircle, Upload, Image as ImageIcon
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Badge } from '../components/ui/badge'
-import { useApi, useDebounce } from '../hooks/useApi'
-import { exercisesAPI } from '../lib/api'
+import { useDebounce } from '../hooks/useDebounce'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import {
+  useExercisesQuery,
+  useCreateExerciseMutation,
+  useUpdateExerciseMutation,
+  useDeleteExerciseMutation,
+  useUploadExerciseImageMutation,
+} from '../hooks/useExercises'
+import { handleApiError } from '../lib/api'
+import { getVideoEmbed } from '../lib/videoEmbed'
 import type { Exercise } from '../lib/api'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
+
+const VideoModal: React.FC<{ exercise: Exercise; onClose: () => void }> = ({
+  exercise,
+  onClose,
+}) => {
+  const embed = getVideoEmbed(exercise.video_url!)
+
+  return (
+    <div
+      className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
+      onClick={onClose}
+    >
+      <Card
+        className="w-full max-w-3xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <CardTitle>{exercise.name}</CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="h-8 w-8 p-0 hover:bg-gray-100 flex-shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <div className="aspect-video w-full overflow-hidden rounded-md bg-black">
+            {embed.type === 'iframe' ? (
+              <iframe
+                src={embed.src}
+                title={exercise.name}
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <video
+                src={embed.src}
+                className="h-full w-full"
+                controls
+                autoPlay
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
 
 interface ExerciseFormData {
   name: string
@@ -32,6 +92,8 @@ const Exercises: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [videoExercise, setVideoExercise] = useState<Exercise | null>(null)
+  useLockBodyScroll(isCreateModalOpen || isEditModalOpen || isDeleteModalOpen || !!videoExercise)
   const [formData, setFormData] = useState<ExerciseFormData>({
     name: '',
     description: '',
@@ -43,6 +105,10 @@ const Exercises: React.FC = () => {
   const [newMuscleGroup, setNewMuscleGroup] = useState('')
   const [newEquipment, setNewEquipment] = useState('')
   const [newInstruction, setNewInstruction] = useState('')
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   // Get state from URL params
   const searchTerm = searchParams.get('search') || ''
@@ -51,31 +117,20 @@ const Exercises: React.FC = () => {
   // Debounce the search input value
   const debouncedSearchValue = useDebounce(searchInputValue, 500)
 
-  // Hook para cargar ejercicios desde la API
-  const {
-    data: exercises,
-    loading: exercisesLoading,
-    error: exercisesError,
-    execute: loadExercises
-  } = useApi(exercisesAPI.getAll)
+  const exercisesQuery = useExercisesQuery({ search: searchTerm, filter: activeFilter })
+  const createExerciseMutation = useCreateExerciseMutation()
+  const updateExerciseMutation = useUpdateExerciseMutation()
+  const deleteExerciseMutation = useDeleteExerciseMutation()
+  const uploadExerciseImageMutation = useUploadExerciseImageMutation()
 
-  // Hook para crear ejercicios
-  const {
-    execute: createExercise,
-    loading: creatingExercise
-  } = useApi(exercisesAPI.create)
-
-  // Hook para actualizar ejercicios
-  const {
-    execute: updateExercise,
-    loading: updatingExercise
-  } = useApi(exercisesAPI.update)
-
-  // Hook para eliminar ejercicios
-  const {
-    execute: deleteExercise,
-    loading: deletingExercise
-  } = useApi(exercisesAPI.delete)
+  const exercises = exercisesQuery.data ?? []
+  const exercisesLoading = exercisesQuery.isPending
+  const exercisesError = exercisesQuery.error ? handleApiError(exercisesQuery.error) : null
+  const creatingExercise = createExerciseMutation.isPending
+  const updatingExercise = updateExerciseMutation.isPending
+  const deletingExercise = deleteExerciseMutation.isPending
+  const uploadingExerciseImage = uploadExerciseImageMutation.isPending
+  const savingExercise = creatingExercise || updatingExercise || uploadingExerciseImage
 
   // Initialize search input value from URL params
   useEffect(() => {
@@ -92,16 +147,6 @@ const Exercises: React.FC = () => {
     }
     setSearchParams(newParams)
   }, [debouncedSearchValue, setSearchParams])
-
-  // Cargar ejercicios al montar el componente
-  useEffect(() => {
-    loadExercises({ search: searchTerm, filter: activeFilter })
-  }, [loadExercises])
-
-  // Cargar ejercicios cuando cambie el término de búsqueda o el filtro
-  useEffect(() => {
-    loadExercises({ search: searchTerm, filter: activeFilter })
-  }, [searchTerm, activeFilter, loadExercises])
 
   const handleSearchChange = (value: string) => {
     setSearchInputValue(value)
@@ -135,6 +180,15 @@ const Exercises: React.FC = () => {
     }
   }
 
+  const resetImageSelection = () => {
+    setSelectedImageFile(null)
+    setImagePreview(null)
+    setImageError(null)
+    if (imageInputRef.current) {
+      imageInputRef.current.value = ''
+    }
+  }
+
   const openCreateModal = () => {
     setFormData({
       name: '',
@@ -144,6 +198,7 @@ const Exercises: React.FC = () => {
       difficulty: 'beginner',
       instructions: []
     })
+    resetImageSelection()
     setIsCreateModalOpen(true)
   }
 
@@ -159,6 +214,8 @@ const Exercises: React.FC = () => {
       video_url: exercise.video_url,
       image_url: exercise.image_url
     })
+    resetImageSelection()
+    setImagePreview(exercise.image_url || null)
     setIsEditModalOpen(true)
   }
 
@@ -173,6 +230,7 @@ const Exercises: React.FC = () => {
     setIsDeleteModalOpen(false)
     setSelectedExercise(null)
     setExerciseToDelete(null)
+    resetImageSelection()
   }
 
   const cleanFormData = (data: ExerciseFormData) => {
@@ -203,16 +261,55 @@ const Exercises: React.FC = () => {
     return cleaned
   }
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setImageError('Por favor selecciona un archivo de imagen válido')
+      return
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError('La imagen no debe ser mayor a 5MB')
+      return
+    }
+
+    setImageError(null)
+    setSelectedImageFile(file)
+
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const uploadSelectedImage = async (exerciseId: number) => {
+    if (!selectedImageFile) return
+    const response = await uploadExerciseImageMutation.mutateAsync({
+      exerciseId,
+      file: selectedImageFile,
+    })
+    setFormData(prev => ({ ...prev, image_url: response.image_url }))
+  }
+
   const handleCreateExercise = async () => {
     try {
       const cleanedData = cleanFormData(formData)
-      const result = await createExercise(cleanedData)
-      if (result) {
-        toast.success('Ejercicio creado exitosamente')
-        closeModals()
-        loadExercises({ search: searchTerm, filter: activeFilter })
+      const created = await createExerciseMutation.mutateAsync(cleanedData)
+      if (selectedImageFile) {
+        try {
+          await uploadSelectedImage(created.id)
+        } catch {
+          toast.error('Ejercicio creado, pero no se pudo subir la imagen')
+          closeModals()
+          return
+        }
       }
-    } catch (error) {
+      toast.success('Ejercicio creado exitosamente')
+      closeModals()
+    } catch {
       toast.error('Error al crear el ejercicio')
     }
   }
@@ -222,13 +319,19 @@ const Exercises: React.FC = () => {
 
     try {
       const cleanedData = cleanFormData(formData)
-      const result = await updateExercise(selectedExercise.id, cleanedData)
-      if (result) {
-        toast.success('Ejercicio actualizado exitosamente')
-        closeModals()
-        loadExercises({ search: searchTerm, filter: activeFilter })
+      await updateExerciseMutation.mutateAsync({ id: selectedExercise.id, data: cleanedData })
+      if (selectedImageFile) {
+        try {
+          await uploadSelectedImage(selectedExercise.id)
+        } catch {
+          toast.error('Ejercicio actualizado, pero no se pudo subir la imagen')
+          closeModals()
+          return
+        }
       }
-    } catch (error) {
+      toast.success('Ejercicio actualizado exitosamente')
+      closeModals()
+    } catch {
       toast.error('Error al actualizar el ejercicio')
     }
   }
@@ -237,11 +340,10 @@ const Exercises: React.FC = () => {
     if (!exerciseToDelete) return
 
     try {
-      await deleteExercise(exerciseToDelete.id)
+      await deleteExerciseMutation.mutateAsync(exerciseToDelete.id)
       toast.success('Ejercicio eliminado exitosamente')
       closeModals()
-      loadExercises({ search: searchTerm, filter: activeFilter })
-    } catch (error) {
+    } catch {
       toast.error('Error al eliminar el ejercicio')
     }
   }
@@ -324,7 +426,7 @@ const Exercises: React.FC = () => {
           <CardContent className="p-6">
             <div className="text-center">
               <p className="text-red-600 mb-4">Error al cargar los ejercicios: {exercisesError}</p>
-              <Button onClick={() => loadExercises({ search: searchTerm, filter: activeFilter })} variant="outline">
+              <Button onClick={() => void exercisesQuery.refetch()} variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reintentar
               </Button>
@@ -336,6 +438,7 @@ const Exercises: React.FC = () => {
   }
 
   return (
+    <>
     <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-2xl font-bold text-gray-900">Ejercicios</h1>
@@ -398,16 +501,23 @@ const Exercises: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredExercises.map((exercise) => (
-            <Card key={exercise.id} className="hover:shadow-md transition-shadow">
+            <Card key={exercise.id} className="overflow-hidden hover:shadow-md transition-shadow">
+              {exercise.image_url && (
+                <img
+                  src={exercise.image_url}
+                  alt={exercise.name}
+                  className="h-40 w-full object-cover"
+                />
+              )}
               <CardContent className="p-6">
                 <div className="space-y-4">
                   {/* Header */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-gray-900 text-lg">{exercise.name}</h3>
                       <p className="text-sm text-gray-600 mt-1">{exercise.description}</p>
                     </div>
-                    <div className="flex gap-1">
+                    <div className="flex shrink-0 gap-1">
                       <Button 
                         size="sm" 
                         variant="outline"
@@ -459,7 +569,7 @@ const Exercises: React.FC = () => {
                       {getDifficultyName(exercise.difficulty)}
                     </Badge>
                     {exercise.video_url && (
-                      <Button size="sm" variant="ghost">
+                      <Button size="sm" variant="ghost" onClick={() => setVideoExercise(exercise)}>
                         <Eye className="w-4 h-4 mr-1" />
                         Ver Video
                       </Button>
@@ -471,10 +581,11 @@ const Exercises: React.FC = () => {
           ))}
         </div>
       )}
+    </div>
 
       {/* Create/Edit Exercise Modal */}
       {(isCreateModalOpen || isEditModalOpen) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <CardHeader>
               <CardTitle>
@@ -640,16 +751,54 @@ const Exercises: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    URL de la Imagen (opcional)
+                    Imagen (opcional)
                   </label>
-                  <Input
-                    value={formData.image_url || ''}
-                    onChange={(e) => setFormData(prev => ({ 
-                      ...prev, 
-                      image_url: e.target.value.trim() === '' ? undefined : e.target.value 
-                    }))}
-                    placeholder="https://example.com/image.jpg"
+                  {imagePreview && (
+                    <div className="mb-2 flex justify-center">
+                      <img
+                        src={imagePreview}
+                        alt={formData.name || 'Vista previa'}
+                        className="h-24 w-24 rounded-lg object-cover border border-gray-200"
+                      />
+                    </div>
+                  )}
+                  {imageError && (
+                    <div className="mb-2 bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-sm">
+                      {imageError}
+                    </div>
+                  )}
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                    id="exercise-image-upload"
+                    disabled={savingExercise}
                   />
+                  <label
+                    htmlFor="exercise-image-upload"
+                    onClick={(e) => {
+                      if (savingExercise) e.preventDefault()
+                    }}
+                    className={`flex items-center justify-center w-full p-3 border-2 border-dashed border-gray-300 rounded-lg transition-colors ${
+                      savingExercise ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-primary-500'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center space-y-1">
+                      {selectedImageFile ? (
+                        <ImageIcon className="w-6 h-6 text-primary-600" />
+                      ) : (
+                        <Upload className="w-6 h-6 text-gray-400" />
+                      )}
+                      <span className="text-sm text-gray-600 text-center">
+                        {selectedImageFile ? selectedImageFile.name : 'Haz clic para seleccionar una imagen'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        JPG, PNG o GIF (máximo 5MB)
+                      </span>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -660,10 +809,10 @@ const Exercises: React.FC = () => {
                 </Button>
                 <Button 
                   onClick={isCreateModalOpen ? handleCreateExercise : handleUpdateExercise}
-                  disabled={!formData.name.trim() || creatingExercise || updatingExercise}
+                  disabled={!formData.name.trim() || savingExercise}
                   className="flex-1 bg-primary-600 hover:bg-primary-700"
                 >
-                  {(creatingExercise || updatingExercise) ? (
+                  {savingExercise ? (
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   ) : (
                     <Save className="w-4 h-4 mr-2" />
@@ -676,9 +825,17 @@ const Exercises: React.FC = () => {
         </div>
       )}
 
+      {/* Video Modal */}
+      {videoExercise?.video_url && (
+        <VideoModal
+          exercise={videoExercise}
+          onClose={() => setVideoExercise(null)}
+        />
+      )}
+
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && exerciseToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle>Confirmar Eliminación</CardTitle>
@@ -718,9 +875,7 @@ const Exercises: React.FC = () => {
           </Card>
         </div>
       )}
-
-      <Toaster position="top-right" />
-    </div>
+    </>
   )
 }
 

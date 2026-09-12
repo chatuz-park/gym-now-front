@@ -7,10 +7,17 @@ import { Badge } from '../components/ui/badge'
 import { Input } from '../components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import ExerciseSelector from '../components/ExerciseSelector'
-import { usePaginatedApi, useApi, useDebounce } from '../hooks/useApi'
-import { routinesAPI } from '../lib/api'
+import { useDebounce } from '../hooks/useDebounce'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import {
+  useRoutinesQuery,
+  useCreateRoutineMutation,
+  useUpdateRoutineMutation,
+  useDeleteRoutineMutation,
+} from '../hooks/useRoutines'
+import { handleApiError } from '../lib/api'
 import type { Routine } from '../lib/api'
-import toast, { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 
 interface ExerciseSet {
   exerciseId: string
@@ -31,38 +38,24 @@ const Routines: React.FC = () => {
   const isExerciseSelectorOpen = searchParams.get('modal') === 'create-routine'
   const isEditModalOpen = searchParams.get('modal') === 'edit-routine'
   const isDeleteModalOpen = searchParams.get('modal') === 'delete-routine'
+  useLockBodyScroll(isDeleteModalOpen)
   const searchTerm = searchParams.get('search') || ''
   const activeFilter = searchParams.get('filter') || 'all'
 
   // Debounce the search input value
   const debouncedSearchValue = useDebounce(searchInputValue, 500)
 
-  // Hook para cargar rutinas desde la API
-  const {
-    data: routines,
-    loading: routinesLoading,
-    error: routinesError,
-    execute: loadRoutines,
-    refresh: refreshRoutines
-  } = usePaginatedApi(routinesAPI.getAll)
+  const routinesQuery = useRoutinesQuery({ search: searchTerm, filter: activeFilter })
+  const createRoutineMutation = useCreateRoutineMutation()
+  const updateRoutineMutation = useUpdateRoutineMutation()
+  const deleteRoutineMutation = useDeleteRoutineMutation()
 
-  // Hook para crear rutinas
-  const {
-    execute: createRoutine,
-    loading: creatingRoutine
-  } = useApi(routinesAPI.create)
-
-  // Hook para actualizar rutinas
-  const {
-    execute: updateRoutine,
-    loading: updatingRoutine
-  } = useApi(routinesAPI.update)
-
-  // Hook para eliminar rutinas
-  const {
-    execute: deleteRoutine,
-    loading: deletingRoutine
-  } = useApi(routinesAPI.delete)
+  const routines = routinesQuery.data ?? { count: 0, next: null, previous: null, results: [] }
+  const routinesLoading = routinesQuery.isPending
+  const routinesError = routinesQuery.error ? handleApiError(routinesQuery.error) : null
+  const creatingRoutine = createRoutineMutation.isPending
+  const updatingRoutine = updateRoutineMutation.isPending
+  const deletingRoutine = deleteRoutineMutation.isPending
 
   // Initialize search input value from URL params
   useEffect(() => {
@@ -79,18 +72,6 @@ const Routines: React.FC = () => {
     }
     setSearchParams(newParams)
   }, [debouncedSearchValue, setSearchParams])
-
-  // Cargar rutinas al montar el componente
-  useEffect(() => {
-    loadRoutines({ search: searchTerm, filter: activeFilter })
-  }, [loadRoutines])
-
-  // Cargar rutinas cuando cambie el término de búsqueda o el filtro
-  useEffect(() => {
-    loadRoutines({ search: searchTerm, filter: activeFilter })
-  }, [searchTerm, activeFilter, loadRoutines])
-
-
 
   const getCategoryColor = (category: string) => {
     switch (category) {
@@ -163,13 +144,10 @@ const Routines: React.FC = () => {
         duration: 4
       }
 
-      const result = await createRoutine(newRoutine)
-      if (result) {
-        toast.success('Rutina creada exitosamente')
-        closeExerciseSelector()
-        refreshRoutines()
-      }
-    } catch (error) {
+      await createRoutineMutation.mutateAsync(newRoutine)
+      toast.success('Rutina creada exitosamente')
+      closeExerciseSelector()
+    } catch {
       toast.error('Error al crear la rutina')
     }
   }
@@ -210,13 +188,10 @@ const Routines: React.FC = () => {
         duration: routineToEdit.duration
       }
 
-      const result = await updateRoutine(routineToEdit.id, updatedRoutine)
-      if (result) {
-        toast.success('Rutina actualizada exitosamente')
-        closeEditModal()
-        refreshRoutines()
-      }
-    } catch (error) {
+      await updateRoutineMutation.mutateAsync({ id: routineToEdit.id, data: updatedRoutine })
+      toast.success('Rutina actualizada exitosamente')
+      closeEditModal()
+    } catch {
       toast.error('Error al actualizar la rutina')
     }
   }
@@ -253,11 +228,10 @@ const Routines: React.FC = () => {
     if (!routineToDelete) return
 
     try {
-      await deleteRoutine(routineToDelete.id)
+      await deleteRoutineMutation.mutateAsync(routineToDelete.id)
       toast.success('Rutina eliminada exitosamente')
       handleCloseDeleteModal()
-      refreshRoutines()
-    } catch (error) {
+    } catch {
       toast.error('Error al eliminar la rutina')
     }
   }
@@ -288,7 +262,7 @@ const Routines: React.FC = () => {
           <CardContent className="p-6">
             <div className="text-center">
               <p className="text-red-600 mb-4">Error al cargar las rutinas: {routinesError}</p>
-              <Button onClick={refreshRoutines} variant="outline">
+              <Button onClick={() => void routinesQuery.refetch()} variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reintentar
               </Button>
@@ -497,7 +471,7 @@ const Routines: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {isDeleteModalOpen && routineToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle>Confirmar Eliminación</CardTitle>
@@ -540,7 +514,6 @@ const Routines: React.FC = () => {
         onSave={handleCreateRoutine}
       />
 
-      <Toaster position="top-right" />
     </div>
   )
 }

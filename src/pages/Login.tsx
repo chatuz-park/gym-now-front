@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useAuth } from '../hooks/useAuth'
 import { Eye, EyeOff, User, Lock, Activity, Users, Target, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
+import { getHomePath, isMember } from '../lib/rbac'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 
@@ -18,17 +19,7 @@ const Login: React.FC = () => {
   })
   const [error, setError] = useState('')
 
-  // Redirect if already logged in
   const from = location.state?.from?.pathname || '/'
-
-  // Mock users for demonstration
-  const mockUsers = [
-    { username: 'admin', password: 'admin123', role: 'admin', name: 'Administrador' },
-    { username: 'trainer', password: 'trainer123', role: 'trainer', name: 'Entrenador' },
-    { username: 'maria', password: 'maria123', role: 'client', name: 'María González', clientId: '1' },
-    { username: 'carlos', password: 'carlos123', role: 'client', name: 'Carlos Rodríguez', clientId: '2' },
-    { username: 'ana', password: 'ana123', role: 'client', name: 'Ana Martínez', clientId: '3' }
-  ]
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -48,42 +39,20 @@ const Login: React.FC = () => {
       const result = await login(formData.username, formData.password)
       
       if (result.success) {
-        // Navigate based on role
-        const user = mockUsers.find(u => u.username === formData.username)
-        if (user?.role === 'client') {
-          navigate(`/my-routine`)
+        const role = result.user?.role
+        if (isMember(role)) {
+          navigate(getHomePath(role), { replace: true })
         } else {
-          navigate(from)
+          const dest = from && from !== '/login' ? from : getHomePath(role)
+          navigate(dest, { replace: true })
         }
       } else {
         setError(result.error || 'Error de autenticación')
       }
-    } catch (error) {
+    } catch {
       setError('Error de conexión')
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleDemoLogin = (role: string) => {
-    let demoUser
-    switch (role) {
-      case 'admin':
-        demoUser = mockUsers.find(u => u.role === 'admin')
-        break
-      case 'trainer':
-        demoUser = mockUsers.find(u => u.role === 'trainer')
-        break
-      case 'client':
-        demoUser = mockUsers.find(u => u.role === 'client')
-        break
-    }
-
-    if (demoUser) {
-      setFormData({
-        username: demoUser.username,
-        password: demoUser.password
-      })
     }
   }
 
@@ -166,37 +135,6 @@ const Login: React.FC = () => {
                   )}
                 </Button>
               </form>
-
-              {/* Demo Accounts */}
-              <div className="pt-4 border-t">
-                <p className="text-sm text-gray-600 mb-3 text-center">Cuentas de demostración:</p>
-                <div className="grid grid-cols-3 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('admin')}
-                    className="text-xs"
-                  >
-                    Admin
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('trainer')}
-                    className="text-xs"
-                  >
-                    Trainer
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDemoLogin('client')}
-                    className="text-xs"
-                  >
-                    Cliente
-                  </Button>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </div>

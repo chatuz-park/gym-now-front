@@ -3,7 +3,9 @@ import { X, Upload, Loader2, Image as ImageIcon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
-import { clientsAPI } from '../lib/api'
+import { handleApiError } from '../lib/api'
+import { useUploadProfileImageMutation } from '../hooks/useClients'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
 
 interface ProfileImageUploadModalProps {
   isOpen: boolean
@@ -24,9 +26,11 @@ const ProfileImageUploadModal: React.FC<ProfileImageUploadModalProps> = ({
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadMutation = useUploadProfileImageMutation()
+  const uploading = uploadMutation.isPending
+  useLockBodyScroll(isOpen)
 
   if (!isOpen) return null
 
@@ -63,22 +67,15 @@ const ProfileImageUploadModal: React.FC<ProfileImageUploadModalProps> = ({
       return
     }
 
-    setUploading(true)
     setError(null)
 
     try {
-      const response = await clientsAPI.uploadProfileImage(clientId, selectedFile)
+      const response = await uploadMutation.mutateAsync({ clientId, file: selectedFile })
       onUploadSuccess(response.profile_image)
       handleClose()
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error uploading image:', err)
-      setError(
-        err.response?.data?.detail ||
-        err.response?.data?.message ||
-        'Error al subir la imagen. Por favor intenta de nuevo.'
-      )
-    } finally {
-      setUploading(false)
+      setError(handleApiError(err) || 'Error al subir la imagen. Por favor intenta de nuevo.')
     }
   }
 
@@ -86,7 +83,6 @@ const ProfileImageUploadModal: React.FC<ProfileImageUploadModalProps> = ({
     setSelectedFile(null)
     setPreviewUrl(null)
     setError(null)
-    setUploading(false)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -101,7 +97,7 @@ const ProfileImageUploadModal: React.FC<ProfileImageUploadModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50 p-4"
       onClick={handleClose}
     >
       <Card

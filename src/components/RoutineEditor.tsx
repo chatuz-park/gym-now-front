@@ -3,9 +3,11 @@ import { X, Target, Calendar, Trash2 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
-import { useApi } from '../hooks/useApi'
-import { clientRoutinesAPI, clientsAPI } from '../lib/api'
+import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
+import { useClientQuery } from '../hooks/useClients'
+import { useDeleteClientRoutineMutation, usePatchClientRoutineMutation } from '../hooks/useClientRoutines'
 import { DAYS_OF_WEEK } from '../definitions'
+import { normalizeAssignedDays } from '../lib/api'
 import type { Routine } from '../lib/api'
 import toast from 'react-hot-toast'
 
@@ -22,7 +24,7 @@ interface AssignedRoutine {
   start_date: string
   end_date?: string
   is_active: boolean
-  assigned_days: { [key: string]: boolean }
+  assigned_days?: string[] | Record<string, boolean>
 }
 
 interface RoutineWithDays {
@@ -39,36 +41,22 @@ const RoutineEditor: React.FC<RoutineEditorProps> = ({
 }) => {
   const [searchParams, setSearchParams] = useSearchParams()
   const [routinesWithDays, setRoutinesWithDays] = useState<RoutineWithDays[]>([])
+  useLockBodyScroll(isOpen)
 
-  const {
-    execute: deleteClientRoutine
-  } = useApi(clientRoutinesAPI.delete)
-
-  const {
-    execute: updateClientRoutine
-  } = useApi(clientRoutinesAPI.patch)
-
-  const {
-    execute: getClient,
-    data: client,
-    loading: loadingClient
-  } = useApi(() => clientsAPI.getById(parseInt(clientId.toString())))
-
-  // Cargar el cliente cuando se abre el modal
-  useEffect(() => {
-    if (isOpen && clientId) {
-      getClient()
-    }
-  }, [isOpen, clientId])
+  const parsedClientId = parseInt(clientId.toString())
+  const deleteRoutineMutation = useDeleteClientRoutineMutation()
+  const patchRoutineMutation = usePatchClientRoutineMutation()
+  const clientQuery = useClientQuery(Number.isNaN(parsedClientId) ? undefined : parsedClientId, {
+    enabled: isOpen && !!clientId,
+  })
+  const client = clientQuery.data
+  const loadingClient = clientQuery.isPending
 
   // Inicializar rutinas con sus días asignados cuando se cargan los datos
   useEffect(() => {
     if (client?.assigned_routines) {
       const routinesWithDaysData = (client.assigned_routines as unknown as AssignedRoutine[]).map(assignedRoutine => {
-        // Convertir assigned_days de objeto a array de strings
-        const selectedDays = assignedRoutine.assigned_days 
-          ? Object.keys(assignedRoutine.assigned_days).filter(day => assignedRoutine.assigned_days[day])
-          : []
+        const selectedDays = normalizeAssignedDays(assignedRoutine.assigned_days)
 
         return {
           routine: assignedRoutine.routine,
@@ -112,7 +100,7 @@ const RoutineEditor: React.FC<RoutineEditorProps> = ({
     
     try {
       // Hacer la llamada DELETE al API usando el assignedRoutineId directamente
-      await deleteClientRoutine(assignedRoutineId)
+      await deleteRoutineMutation.mutateAsync(assignedRoutineId)
       
       // Remover de la lista local
       setRoutinesWithDays(prev => prev.filter((_, index) => index !== routineIndex))
@@ -129,15 +117,9 @@ const RoutineEditor: React.FC<RoutineEditorProps> = ({
     const routineToUpdate = routinesWithDays[routineIndex]
     
     try {
-      // Crear objeto con los días asignados
-      const assignedDays: { [key: string]: boolean } = {}
-      routineToUpdate.selectedDays.forEach(day => {
-        assignedDays[day] = true
-      })
-      
-      // Hacer la llamada PATCH al API usando el assignedRoutineId directamente
-      await updateClientRoutine(assignedRoutineId, {
-        assigned_days: assignedDays
+      await patchRoutineMutation.mutateAsync({
+        id: assignedRoutineId,
+        data: { assigned_days: routineToUpdate.selectedDays },
       })
       
       toast.success(`Días de ${routineToUpdate.routine.name} actualizados`)
@@ -151,7 +133,7 @@ const RoutineEditor: React.FC<RoutineEditorProps> = ({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-lg w-full max-w-4xl h-[90vh] m-4 overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
