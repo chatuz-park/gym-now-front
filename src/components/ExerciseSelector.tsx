@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, Plus, X, Dumbbell, Target, Loader2, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent } from './ui/card'
@@ -9,6 +10,7 @@ import { useDebounce } from '../hooks/useDebounce'
 import { useLockBodyScroll } from '../hooks/useLockBodyScroll'
 import { useExercisesQuery } from '../hooks/useExercises'
 import type { Exercise } from '../lib/api'
+import { cn } from '../lib/utils'
 import { 
   EXERCISE_CATEGORIES, 
   getDifficultyColor, 
@@ -34,6 +36,8 @@ interface ExerciseSelectorProps {
   routineName?: string
   routineDescription?: string
 }
+
+const EMPTY_EXERCISE_SETS: ExerciseSet[] = []
 
 // Fallback exercises in case API fails
 const fallbackExercises: Exercise[] = [
@@ -70,7 +74,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   isOpen,
   onClose,
   onSave,
-  initialExercises = [],
+  initialExercises = EMPTY_EXERCISE_SETS,
   routineName: initialRoutineName = '',
   routineDescription: initialRoutineDescription = ''
 }) => {
@@ -79,6 +83,7 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
   const [routineName, setRoutineName] = useState(initialRoutineName)
   const [routineDescription, setRoutineDescription] = useState(initialRoutineDescription)
   const [searchInputValue, setSearchInputValue] = useState('')
+  const [mobilePanel, setMobilePanel] = useState<'catalog' | 'routine'>('catalog')
   useLockBodyScroll(isOpen)
 
   // Get state from URL params
@@ -103,28 +108,35 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
 
   // Update URL params when debounced search value changes
   useEffect(() => {
-    const newParams = new URLSearchParams(searchParams)
-    if (debouncedSearchValue) {
-      newParams.set('search', debouncedSearchValue)
-    } else {
-      newParams.delete('search')
-    }
-    setSearchParams(newParams)
-  }, [debouncedSearchValue, setSearchParams])
+    if (!isOpen) return
+    if (searchTerm === debouncedSearchValue) return
+    setSearchParams((currentParams) => {
+      const newParams = new URLSearchParams(currentParams)
+      if (debouncedSearchValue) {
+        newParams.set('search', debouncedSearchValue)
+      } else {
+        newParams.delete('search')
+      }
+      return newParams
+    })
+  }, [debouncedSearchValue, isOpen, searchTerm, setSearchParams])
 
-  // Update form when initial data changes (for edit mode)
+  // Seed the form only when the modal opens. Depending on initialExercises
+  // would loop: the default [] (and the mapped edit list) is a new array
+  // every render, so setState would retrigger the effect forever.
   useEffect(() => {
-    if (isOpen) {
-      // Ensure initialExercises is an array and has valid data
-      const validInitialExercises = Array.isArray(initialExercises) 
-        ? initialExercises.filter(ex => ex && ex.exerciseId && ex.exercise)
-        : []
-      
-      setSelectedExercises(validInitialExercises)
-      setRoutineName(initialRoutineName || '')
-      setRoutineDescription(initialRoutineDescription || '')
-    }
-  }, [isOpen, initialExercises, initialRoutineName, initialRoutineDescription])
+    if (!isOpen) return
+
+    const validInitialExercises = Array.isArray(initialExercises)
+      ? initialExercises.filter(ex => ex && ex.exerciseId && ex.exercise)
+      : []
+
+    setSelectedExercises(validInitialExercises)
+    setRoutineName(initialRoutineName || '')
+    setRoutineDescription(initialRoutineDescription || '')
+    setMobilePanel('catalog')
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed on open only
+  }, [isOpen])
 
 
 
@@ -214,28 +226,52 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg w-full max-w-6xl h-[95vh] m-4 overflow-hidden">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] !m-0 flex touch-manipulation items-end justify-center bg-black bg-opacity-50 md:items-center">
+      <div className="flex h-[100dvh] w-full max-w-6xl flex-col overflow-hidden bg-white md:m-4 md:h-[95vh] md:max-h-[95vh] md:rounded-lg">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b p-4 md:p-6">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-gray-900 md:text-xl">
               {initialExercises.length > 0 ? 'Editar Rutina' : 'Crear Nueva Rutina'}
             </h2>
-            <p className="text-gray-600">
+            <p className="text-sm text-gray-600 md:text-base">
               {initialExercises.length > 0 ? 'Modifica los ejercicios y configura los parámetros' : 'Selecciona ejercicios y configura los parámetros'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleClose}>
+          <Button type="button" variant="ghost" size="sm" onClick={handleClose} className="shrink-0">
             <X className="w-5 h-5" />
           </Button>
         </div>
 
-        <div className="flex h-[calc(95vh-120px)]">
+        <div className="flex shrink-0 gap-2 border-b p-2 md:hidden">
+          <Button
+            type="button"
+            size="sm"
+            variant={mobilePanel === 'catalog' ? 'default' : 'outline'}
+            onClick={() => setMobilePanel('catalog')}
+            className="min-w-0 flex-1"
+          >
+            Ejercicios
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={mobilePanel === 'routine' ? 'default' : 'outline'}
+            onClick={() => setMobilePanel('routine')}
+            className="min-w-0 flex-1"
+          >
+            Rutina ({selectedExercises.length})
+          </Button>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
           {/* Left Panel - Exercise Selection */}
-          <div className="w-2/3 border-r overflow-y-auto">
-            <div className="p-6 space-y-4">
+          <div className={cn(
+            'min-h-0 min-w-0 flex-1 overflow-y-auto md:w-2/3 md:border-r',
+            mobilePanel !== 'catalog' && 'hidden md:block'
+          )}>
+            <div className="space-y-4 p-4 md:p-6">
               {/* Search and Filters */}
               <div className="space-y-3">
                 <div className="relative">
@@ -293,23 +329,23 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                         onClick={() => addExercise(exercise)}
                       >
                         <CardContent className="p-4">
-                          <div className="flex space-x-4">
+                          <div className="flex gap-3">
                             {/* Exercise Image Placeholder */}
-                            <div className="flex-shrink-0">
-                              <div className={`w-16 h-16 bg-gradient-to-br ${getExerciseColor(exercise.name)} rounded-lg flex items-center justify-center border`}>
+                            <div className="shrink-0">
+                              <div className={`flex h-14 w-14 items-center justify-center rounded-lg border bg-gradient-to-br md:h-16 md:w-16 ${getExerciseColor(exercise.name)}`}>
                                 <span className="text-2xl">{getExerciseIcon(exercise.name)}</span>
                               </div>
                             </div>
                             
                             {/* Exercise Content */}
-                            <div className="flex-1 space-y-3">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
                                   <h3 className="font-semibold text-gray-900">{exercise.name}</h3>
-                                  <p className="text-sm text-gray-600 mt-1">{exercise.description}</p>
+                                  <p className="mt-1 text-sm text-gray-600">{exercise.description}</p>
                                 </div>
                                 {isSelected && (
-                                  <Badge variant="default" className="bg-primary-600">
+                                  <Badge variant="default" className="shrink-0 bg-primary-600">
                                     Seleccionado
                                   </Badge>
                                 )}
@@ -323,10 +359,10 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                                 ))}
                               </div>
                               
-                              <div className="flex items-center justify-between text-sm text-gray-600">
-                                <div className="flex items-center space-x-1">
-                                  <Dumbbell className="w-4 h-4" />
-                                  <span>{Array.isArray(exercise.equipment) ? exercise.equipment.join(', ') : exercise.equipment}</span>
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
+                                <div className="flex min-w-0 items-center gap-1">
+                                  <Dumbbell className="h-4 w-4 shrink-0" />
+                                  <span className="truncate">{Array.isArray(exercise.equipment) ? exercise.equipment.join(', ') : exercise.equipment}</span>
                                 </div>
                                 <Badge variant={getDifficultyColor(exercise.difficulty) as any}>
                                   {exercise.difficulty}
@@ -344,9 +380,12 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
           </div>
 
           {/* Right Panel - Selected Exercises */}
-          <div className="w-1/3 flex flex-col">
-            <div className="p-6 border-b">
-              <h3 className="font-semibold text-gray-900 mb-4">Rutina Configuración</h3>
+          <div className={cn(
+            'min-h-0 min-w-0 flex-1 flex-col md:flex md:w-1/3',
+            mobilePanel === 'routine' ? 'flex' : 'hidden md:flex'
+          )}>
+            <div className="shrink-0 border-b p-4 md:p-6">
+              <h3 className="mb-4 font-semibold text-gray-900">Rutina Configuración</h3>
               
               <div className="space-y-3">
                 <div>
@@ -375,15 +414,15 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
-              <h4 className="font-medium text-gray-900 mb-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+              <h4 className="mb-4 font-medium text-gray-900">
                 Ejercicios Seleccionados ({selectedExercises.length})
               </h4>
               
               {selectedExercises.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Target className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                  <p>Selecciona ejercicios del panel izquierdo</p>
+                <div className="py-8 text-center text-gray-500">
+                  <Target className="mx-auto mb-2 h-12 w-12 text-gray-300" />
+                  <p>Selecciona ejercicios del catálogo</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -391,8 +430,8 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                     <Card key={exerciseSet.exerciseId} className="border">
                       <CardContent className="p-4">
                         <div className="space-y-3">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
                               <h5 className="font-medium text-gray-900">
                                 {exerciseSet.exercise.name}
                               </h5>
@@ -404,10 +443,11 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
                               </p>
                             </div>
                             <Button
+                              type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => removeExercise(exerciseSet.exerciseId)}
-                              className="text-red-500 hover:text-red-700"
+                              className="shrink-0 text-red-500 hover:text-red-700"
                             >
                               <X className="w-4 h-4" />
                             </Button>
@@ -474,26 +514,28 @@ const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({
               )}
             </div>
 
-            {/* Footer */}
-            <div className="p-6 border-t bg-gray-50">
-              <div className="flex space-x-3">
-                <Button variant="outline" onClick={handleClose} className="flex-1">
-                  Cancelar
-                </Button>
-                <Button 
-                  onClick={handleSave}
-                  disabled={!routineName.trim() || selectedExercises.length === 0}
-                  className="flex-1 bg-primary-600 hover:bg-primary-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  {initialExercises.length > 0 ? 'Actualizar Rutina' : 'Crear Rutina'}
-                </Button>
-              </div>
-            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 border-t bg-gray-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6">
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" onClick={handleClose} className="min-w-0 flex-1">
+              Cancelar
+            </Button>
+            <Button 
+              type="button"
+              onClick={handleSave}
+              disabled={!routineName.trim() || selectedExercises.length === 0}
+              className="h-auto min-h-10 min-w-0 flex-1 whitespace-normal bg-primary-600 hover:bg-primary-700"
+            >
+              <Plus className="mr-2 h-4 w-4 shrink-0" />
+              {initialExercises.length > 0 ? 'Actualizar Rutina' : 'Crear Rutina'}
+            </Button>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

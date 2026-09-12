@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X, User, Mail, Phone, Calendar, Target, Ruler, Scale, Activity, AlertCircle, RefreshCw } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import { Formik, Form, Field, ErrorMessage } from 'formik'
@@ -588,34 +589,34 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
 
   if (!isOpen) return null
 
-  return (
-    <div className="fixed inset-0 z-50 !m-0 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg w-full max-w-4xl h-[90vh] m-4 overflow-hidden">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] !m-0 flex touch-manipulation items-end justify-center bg-black bg-opacity-50 md:items-center">
+      <div className="flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden bg-white md:m-4 md:h-[90vh] md:max-h-[90vh] md:rounded-lg">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b p-4 md:p-6">
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-gray-900 md:text-xl">
               {clientToEdit ? 'Editar Cliente' : 'Crear Nuevo Cliente'}
             </h2>
-            <p className="text-gray-600">
+            <p className="text-sm text-gray-600 md:text-base">
               {clientToEdit ? 'Modifica la información del cliente' : 'Completa la información del cliente'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleClose}>
+          <Button type="button" variant="ghost" size="sm" onClick={handleClose} className="shrink-0">
             <X className="w-5 h-5" />
           </Button>
         </div>
 
         {/* Mostrar estado de carga cuando se está cargando el cliente desde API */}
         {clientLoading && !clientToEdit ? (
-          <div className="flex items-center justify-center h-[calc(90vh-120px)]">
+          <div className="flex min-h-0 flex-1 items-center justify-center p-6">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
               <p className="text-gray-600">Cargando información del cliente...</p>
             </div>
           </div>
         ) : clientError && !clientToEdit ? (
-          <div className="flex items-center justify-center h-[calc(90vh-120px)]">
+          <div className="flex min-h-0 flex-1 items-center justify-center p-6">
             <div className="text-center">
               <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Error al cargar cliente</h3>
@@ -661,17 +662,17 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
             }
             
             return (
-            <Form>
-              <div className="flex h-[calc(90vh-120px)]">
+            <Form className="flex min-h-0 flex-1 flex-col">
+              <div className="flex min-h-0 flex-1 flex-col md:flex-row">
                 {/* Left Panel - Form */}
-                <div className="w-2/3 border-r overflow-y-auto">
-                  <div className="p-6">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto md:w-2/3 md:border-r">
+                  <div className="p-4 md:p-6">
                     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                      <TabsList className="grid w-full grid-cols-4">
-                        <TabsTrigger value="personal">Personal</TabsTrigger>
-                        <TabsTrigger value="measurements">Medidas</TabsTrigger>
-                        <TabsTrigger value="subscription">Suscripción</TabsTrigger>
-                        <TabsTrigger value="routines">Rutinas</TabsTrigger>
+                      <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:grid-cols-4">
+                        <TabsTrigger value="personal" className="px-2 text-xs sm:text-sm md:px-3">Personal</TabsTrigger>
+                        <TabsTrigger value="measurements" className="px-2 text-xs sm:text-sm md:px-3">Medidas</TabsTrigger>
+                        <TabsTrigger value="subscription" className="px-2 text-xs sm:text-sm md:px-3">Suscripción</TabsTrigger>
+                        <TabsTrigger value="routines" className="px-2 text-xs sm:text-sm md:px-3">Rutinas</TabsTrigger>
                       </TabsList>
 
                       <TabsContent value="personal" className="space-y-6 mt-6">
@@ -823,7 +824,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                       : [...currentGoals, goal]
                                     setFieldValue('goals', updatedGoals)
                                   }}
-                                  className="justify-start"
+                                  className="h-auto min-h-9 min-w-0 justify-start whitespace-normal px-2 text-left text-xs sm:text-sm"
                                 >
                                   {goal}
                                 </Button>
@@ -1081,15 +1082,16 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                         </div>
 
                         {/* Subscription Dates */}
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <p className="text-sm font-medium text-gray-700">Fechas de suscripción</p>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
                             onClick={() => renewSubscriptionDates(setFieldValue)}
+                            className="shrink-0"
                           >
-                            <RefreshCw className="w-4 h-4 mr-2" />
+                            <RefreshCw className="mr-2 h-4 w-4" />
                             Renovar fechas
                           </Button>
                         </div>
@@ -1173,11 +1175,11 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                 }}
                               >
                                 <CardContent className="p-4">
-                                  <div className="flex items-center justify-between">
-                                    <div>
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="min-w-0">
                                       <h4 className="font-semibold text-gray-900">{routine.name}</h4>
                                       <p className="text-sm text-gray-600">{routine.description}</p>
-                                      <div className="flex items-center space-x-2 mt-2">
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
                                         <Badge variant="outline" className="text-xs">
                                           {routine.duration} semanas
                                         </Badge>
@@ -1186,7 +1188,7 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                                         </Badge>
                                       </div>
                                     </div>
-                                    <div className="flex items-center space-x-2">
+                                    <div className="flex shrink-0 flex-wrap items-center gap-2">
                                       {isSelected && (
                                         <>
                                           <Badge variant="default" className="bg-primary-600">
@@ -1272,28 +1274,28 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                 </div>
 
                 {/* Right Panel - Summary */}
-                <div className="w-1/3 flex flex-col">
-                  <div className="p-6 border-b">
-                    <h3 className="font-semibold text-gray-900 mb-4">Resumen del Cliente</h3>
+                <div className="hidden min-h-0 min-w-0 md:flex md:w-1/3 md:flex-col">
+                  <div className="border-b p-6">
+                    <h3 className="mb-4 font-semibold text-gray-900">Resumen del Cliente</h3>
                     
                     {values.name && (
                       <div className="space-y-3">
-                        <div className="flex items-center space-x-2">
-                          <User className="w-4 h-4 text-gray-500" />
-                          <span className="font-medium">{values.name}</span>
+                        <div className="flex min-w-0 items-center space-x-2">
+                          <User className="h-4 w-4 shrink-0 text-gray-500" />
+                          <span className="truncate font-medium">{values.name}</span>
                         </div>
                         
                         {values.email && (
-                          <div className="flex items-center space-x-2">
-                            <Mail className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">{values.email}</span>
+                          <div className="flex min-w-0 items-center space-x-2">
+                            <Mail className="h-4 w-4 shrink-0 text-gray-500" />
+                            <span className="truncate text-sm text-gray-600">{values.email}</span>
                           </div>
                         )}
                         
                         {values.phone && (
-                          <div className="flex items-center space-x-2">
-                            <Phone className="w-4 h-4 text-gray-500" />
-                            <span className="text-sm text-gray-600">{values.phone}</span>
+                          <div className="flex min-w-0 items-center space-x-2">
+                            <Phone className="h-4 w-4 shrink-0 text-gray-500" />
+                            <span className="truncate text-sm text-gray-600">{values.phone}</span>
                           </div>
                         )}
                         
@@ -1416,40 +1418,40 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
                     )}
                   </div>
 
-                  {/* Footer */}
-                  <div className="p-6 border-t bg-gray-50">
-                    <ErrorMessage name="submit" component="div" className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                      {(msg) => (
-                        <p className="text-red-600 text-xs flex items-center">
-                          <AlertCircle className="w-3 h-3 mr-1" />
-                          {msg}
-                        </p>
-                      )}
-                    </ErrorMessage>
-                    
-                    <div className="flex space-x-3">
-                      <Button variant="outline" onClick={handleClose} className="flex-1" disabled={isProcessing}>
-                        Cancelar
-                      </Button>
-                      <Button 
-                        type="submit"
-                        disabled={!isValid || isProcessing}
-                        className="flex-1 bg-primary-600 hover:bg-primary-700"
-                      >
-                        {isProcessing ? (
-                          <>
-                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                            {clientToEditFinal ? 'Actualizando...' : 'Creando...'}
-                          </>
-                        ) : (
-                          <>
-                            <User className="w-4 h-4 mr-2" />
-                            {clientToEditFinal ? 'Editar Cliente' : 'Crear Cliente'}
-                          </>
-                        )}
-                      </Button>
-                    </div>
-                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 border-t bg-gray-50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6">
+                <ErrorMessage name="submit" component="div" className="mb-4 rounded-md border border-red-200 bg-red-50 p-3">
+                  {(msg) => (
+                    <p className="flex items-center text-xs text-red-600">
+                      <AlertCircle className="mr-1 h-3 w-3" />
+                      {msg}
+                    </p>
+                  )}
+                </ErrorMessage>
+                
+                <div className="flex gap-3">
+                  <Button type="button" variant="outline" onClick={handleClose} className="min-w-0 flex-1" disabled={isProcessing}>
+                    Cancelar
+                  </Button>
+                  <Button 
+                    type="submit"
+                    disabled={!isValid || isProcessing}
+                    className="min-w-0 flex-1 bg-primary-600 hover:bg-primary-700"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                        {clientToEditFinal ? 'Actualizando...' : 'Creando...'}
+                      </>
+                    ) : (
+                      <>
+                        <User className="mr-2 h-4 w-4 shrink-0" />
+                        {clientToEditFinal ? 'Editar Cliente' : 'Crear Cliente'}
+                      </>
+                    )}
+                  </Button>
                 </div>
               </div>
             </Form>
@@ -1458,7 +1460,8 @@ const ClientCreator: React.FC<ClientCreatorProps> = ({
         </Formik>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

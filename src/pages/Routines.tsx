@@ -64,6 +64,8 @@ const Routines: React.FC = () => {
 
   // Update URL params when debounced search value changes
   useEffect(() => {
+    const currentSearch = searchParams.get('search') || ''
+    if (currentSearch === debouncedSearchValue) return
     const newParams = new URLSearchParams(searchParams)
     if (debouncedSearchValue) {
       newParams.set('search', debouncedSearchValue)
@@ -71,7 +73,7 @@ const Routines: React.FC = () => {
       newParams.delete('search')
     }
     setSearchParams(newParams)
-  }, [debouncedSearchValue, setSearchParams])
+  }, [debouncedSearchValue, searchParams, setSearchParams])
 
   const getCategoryColor = (category: string) => {
     switch (category) {
