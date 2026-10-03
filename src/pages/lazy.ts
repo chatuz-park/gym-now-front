@@ -9,6 +9,7 @@ export const GlobalProgress = lazy(() => import('./GlobalProgress'))
 export const Progress = lazy(() => import('./Progress'))
 export const Settings = lazy(() => import('./Settings'))
 export const Plans = lazy(() => import('./Plans'))
+export const AccessControl = lazy(() => import('./AccessControl'))
 
 export const prefetchPage: Record<string, () => Promise<unknown>> = {
   '/': () => import('./Dashboard'),
@@ -16,6 +17,7 @@ export const prefetchPage: Record<string, () => Promise<unknown>> = {
   '/routines': () => import('./Routines'),
   '/exercises': () => import('./Exercises'),
   '/plans': () => import('./Plans'),
+  '/access-control': () => import('./AccessControl'),
   '/progress': () => import('./GlobalProgress'),
   '/settings': () => import('./Settings'),
   '/me': () => import('./ClientDetail'),

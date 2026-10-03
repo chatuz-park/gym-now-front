@@ -136,6 +136,61 @@ export interface Plan {
   is_active: boolean
   subscribers_count: number
 }
+
+export type AccessModality = 'fingerprint' | 'card'
+export type AccessResult = 'granted' | 'denied'
+export type AccessDenialReason =
+  | ''
+  | 'unknown'
+  | 'inactive_credential'
+  | 'no_subscription'
+  | 'not_started'
+  | 'expired'
+
+export interface AccessClientSummary {
+  id: number
+  name: string
+  email: string
+  profile_image?: string | null
+  subscription_type?: string | null
+  subscription_end?: string | null
+  plan_name?: string | null
+}
+
+export interface AccessCredential {
+  id: number
+  client: AccessClientSummary
+  modality: AccessModality
+  identifier: string
+  label: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface AccessLogEntry {
+  id: number
+  client: number | null
+  client_name: string | null
+  modality: string
+  identifier: string
+  device_id: string
+  result: AccessResult
+  denial_reason: AccessDenialReason | string
+  days_remaining: number | null
+  created_at: string
+}
+
+export interface AccessDecision {
+  authorized: boolean
+  result: AccessResult
+  denial_reason: AccessDenialReason
+  days_remaining: number | null
+  identifier: string
+  device_id: string
+  modality: AccessModality | null
+  client: AccessClientSummary | null
+}
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced'
 export type WorkoutCategory = 'strength' | 'cardio' | 'flexibility' | 'mixed'
 export type RoutineFrequency = 'daily' | 'weekly' | 'custom'
@@ -521,6 +576,45 @@ export const usersAPI = {
 export const dashboardAPI = {
   getSummary: async () => {
     const response = await api.get<DashboardSummary>('/dashboard/')
+    return response.data
+  },
+}
+
+export const accessAPI = {
+  listCredentials: async (params?: { search?: string; modality?: AccessModality; client?: number }) => {
+    const response = await api.get<AccessCredential[] | { results: AccessCredential[] }>(
+      '/access-credentials/',
+      { params },
+    )
+    return unwrapList(response.data)
+  },
+
+  createCredential: async (data: {
+    client_id: number
+    modality: AccessModality
+    identifier: string
+    label?: string
+  }) => {
+    const response = await api.post<AccessCredential>('/access-credentials/', data)
+    return response.data
+  },
+
+  patchCredential: async (id: number, data: { is_active?: boolean; label?: string; client_id?: number }) => {
+    const response = await api.patch<AccessCredential>(`/access-credentials/${id}/`, data)
+    return response.data
+  },
+
+  deleteCredential: async (id: number) => {
+    await api.delete(`/access-credentials/${id}/`)
+  },
+
+  listLogs: async () => {
+    const response = await api.get<AccessLogEntry[] | { results: AccessLogEntry[] }>('/access-logs/')
+    return unwrapList(response.data)
+  },
+
+  identify: async (data: { identifier: string; device_id?: string }) => {
+    const response = await api.post<AccessDecision>('/identificaciones/', data)
     return response.data
   },
 }

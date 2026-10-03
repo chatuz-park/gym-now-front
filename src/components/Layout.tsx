@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell, CreditCard } from 'lucide-react'
+import { Home, Users, Calendar, BarChart3, Settings, LogOut, User, Dumbbell, CreditCard, Fingerprint } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useAuth } from '../hooks/useAuth'
 import { useMeQuery } from '../hooks/useClients'
@@ -29,6 +29,7 @@ const Layout: React.FC = () => {
     { id: '/routines', label: 'Rutinas', icon: Calendar, path: '/routines' },
     { id: '/exercises', label: 'Ejercicios', icon: Dumbbell, path: '/exercises' },
     { id: '/plans', label: 'Planes', icon: CreditCard, path: '/plans' },
+    { id: '/access-control', label: 'Acceso', icon: Fingerprint, path: '/access-control' },
     { id: '/progress', label: 'Progreso', icon: BarChart3, path: '/progress' },
     ...(isOwner(user?.role)
       ? [{ id: '/settings', label: 'Ajustes', icon: Settings, path: '/settings' }]

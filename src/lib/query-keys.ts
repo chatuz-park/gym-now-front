@@ -16,6 +16,12 @@ export interface PlansListQuery {
   ordering?: string
 }
 
+export interface AccessCredentialsQuery {
+  search?: string
+  modality?: 'fingerprint' | 'card'
+  client?: number
+}
+
 export const queryKeys = {
   dashboard: {
     all: ['dashboard'] as const,
@@ -81,5 +87,11 @@ export const queryKeys = {
     list: (params?: PlansListQuery) => [...queryKeys.plans.lists(), params ?? {}] as const,
     details: () => [...queryKeys.plans.all, 'detail'] as const,
     detail: (id: number) => [...queryKeys.plans.details(), id] as const,
+  },
+  access: {
+    all: ['access'] as const,
+    credentials: (params?: AccessCredentialsQuery) =>
+      [...queryKeys.access.all, 'credentials', params ?? {}] as const,
+    logs: () => [...queryKeys.access.all, 'logs'] as const,
   },
 }

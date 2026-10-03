@@ -21,6 +21,7 @@ import {
   Progress,
   Settings,
   Plans,
+  AccessControl,
 } from './pages/lazy'
 import { MEMBER_ROLES, OWNER_ROLES, STAFF_ROLES } from './lib/rbac'
 
@@ -46,6 +47,7 @@ const App: React.FC = () => {
                 <Route path="routines" element={<Routines />} />
                 <Route path="exercises" element={<Exercises />} />
                 <Route path="plans" element={<Plans />} />
+                <Route path="access-control" element={<AccessControl />} />
                 <Route path="progress" element={<GlobalProgress />} />
                 <Route path="settings" element={
                   <ProtectedRoute allowedRoles={[...OWNER_ROLES]}>

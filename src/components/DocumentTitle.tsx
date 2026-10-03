@@ -10,6 +10,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/routines': 'Rutinas',
   '/exercises': 'Ejercicios',
   '/plans': 'Planes',
+  '/access-control': 'Control de acceso',
   '/progress': 'Progreso',
   '/settings': 'Ajustes',
   '/me': 'Mi perfil',
